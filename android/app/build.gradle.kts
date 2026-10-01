@@ -14,6 +14,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // flutter_local_notifications 的 AAR 元数据要求开启 core library desugaring，
+        // 否则构建在 :app:checkReleaseAarMetadata 一步直接失败：
+        //   "Dependency ':flutter_local_notifications' requires core library
+        //    desugaring to be enabled for :app."
+        // 开启后还需在文件底部的 dependencies 中补上 desugar_jdk_libs 依赖。
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -42,4 +48,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // 与上方 isCoreLibraryDesugaringEnabled = true 配套，缺一不可。
+    // 2.1.4 适配 AGP 8.1+（本项目 AGP 8.7.3），官方推荐版本。
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
