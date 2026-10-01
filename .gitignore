@@ -16,3 +16,9 @@ android/app/release/
 
 # BUILD_APK.bat 运行时的 android 配置临时备份
 android_backup/
+
+# 编译/自检产物
+build/
+rebuilt/
+check_result.txt
+rebuild_result.txt
