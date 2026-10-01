@@ -31,7 +31,17 @@ android {
         applicationId = "com.example.bili_tracker"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // 必须显式写 23，不能用 flutter.minSdkVersion（Flutter 3.32 默认 21）：
+        //  - workmanager_android 的 manifest 声明 minSdk 23，
+        //    低于它 manifest 合并会直接失败：
+        //    "uses-sdk:minSdkVersion 21 cannot be smaller than version 23
+        //     declared in library [:workmanager_android]"
+        //  - flutter_secure_storage（Keystore 强安全存储）同样要求 23
+        // 原手写 Groovy 配置（android/_legacy_groovy_bak/app/build.gradle）
+        // 里写的就是 minSdk = 23，改用 .kts 模板后该设置被
+        // flutter.minSdkVersion 覆盖丢失 —— 即交接文档 V2 第 3.3 节所称
+        // 「两套配置等价、无设置丢失」并不成立（另见本轮说明）。
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
