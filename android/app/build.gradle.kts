@@ -8,7 +8,8 @@ plugins {
 android {
     namespace = "com.example.bili_tracker"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // 插件(workmanager/flutter_inappwebview等)要求 NDK 27.0.12077973，取各插件要求的最高版本
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
