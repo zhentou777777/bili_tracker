@@ -105,7 +105,7 @@ class _SearchPageState extends State<SearchPage> {
                         _search();
                       },
                       backgroundColor: TrackerTheme.surface,
-                      selectedColor: TrackerTheme.brand.withOpacity(0.2),
+                      selectedColor: TrackerTheme.brand.withValues(alpha: 0.2),
                       visualDensity: VisualDensity.compact,
                       side: const BorderSide(color: TrackerTheme.border),
                     ),
@@ -133,7 +133,7 @@ class _SearchPageState extends State<SearchPage> {
                         _search();
                       },
                       backgroundColor: TrackerTheme.surface,
-                      selectedColor: TrackerTheme.brand.withOpacity(0.2),
+                      selectedColor: TrackerTheme.brand.withValues(alpha: 0.2),
                       visualDensity: VisualDensity.compact,
                       side: const BorderSide(color: TrackerTheme.border),
                     ),

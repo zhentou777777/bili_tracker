@@ -210,7 +210,7 @@ class _CalendarPageState extends State<CalendarPage> {
             margin: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               color: isSel
-                  ? TrackerTheme.brand.withOpacity(0.18)
+                  ? TrackerTheme.brand.withValues(alpha: 0.18)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
@@ -230,7 +230,7 @@ class _CalendarPageState extends State<CalendarPage> {
                         ? (isSel
                             ? TrackerTheme.brand
                             : TrackerTheme.textPrimary)
-                        : TrackerTheme.textSecondary.withOpacity(0.4),
+                        : TrackerTheme.textSecondary.withValues(alpha: 0.4),
                   ),
                 ),
                 const SizedBox(height: 2),

@@ -305,7 +305,7 @@ class _TodayPageState extends State<TodayPage> {
   Widget _kindChip(FeedKind kind) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
         decoration: BoxDecoration(
-          color: _kindColor(kind).withOpacity(0.15),
+          color: _kindColor(kind).withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(4),
         ),
         child: Text(

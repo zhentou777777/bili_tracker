@@ -201,7 +201,7 @@ class _UpsPageState extends State<UpsPage> {
             _load();
           },
           backgroundColor: TrackerTheme.surface,
-          selectedColor: TrackerTheme.brand.withOpacity(0.2),
+          selectedColor: TrackerTheme.brand.withValues(alpha: 0.2),
           checkmarkColor: TrackerTheme.brand,
           side: const BorderSide(color: TrackerTheme.border),
           visualDensity: VisualDensity.compact,
@@ -347,7 +347,7 @@ class _UpConfigSheetState extends State<_UpConfigSheet> {
                     selected: _up.group == g,
                     onSelected: (bool _) => setState(() => _up.group = g),
                     backgroundColor: TrackerTheme.surfaceAlt,
-                    selectedColor: TrackerTheme.brand.withOpacity(0.25),
+                    selectedColor: TrackerTheme.brand.withValues(alpha: 0.25),
                   ),
               ],
             ),

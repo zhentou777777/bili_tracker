@@ -43,8 +43,9 @@ class TrackerTheme {
           fontWeight: FontWeight.w600,
         ),
       ),
-      // CardTheme 在新版 Flutter 中更名为 CardThemeData，旧名仍可用且兼容 3.10+
-      cardTheme: const CardTheme(
+      // Flutter 3.27 起 ThemeData.cardTheme 的类型由 CardTheme 改为 CardThemeData
+      // （官方破坏性变更），此处必须用新类型，否则编译报错。
+      cardTheme: const CardThemeData(
         color: surface,
         elevation: 0,
         margin: EdgeInsets.zero,

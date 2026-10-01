@@ -12,3 +12,6 @@ android/app/release/
 *.iml
 .idea/
 .DS_Store
+
+# BUILD_APK.bat 运行时的 android 配置临时备份
+android_backup/
