@@ -31,11 +31,10 @@ const List<String> kExtendedCookieWhitelist = <String>[
 ];
 
 /// 登录态变化通知。
+///
+/// 只保存内存里的「是否已登录」标记，不碰存储：
+/// 真正的 Cookie 读写全部由下面的 AuthService 负责。
 class AuthState extends ChangeNotifier {
-  AuthState(this._storage);
-
-  final FlutterSecureStorage _storage;
-
   final Map<String, bool> _loggedIn = <String, bool>{};
 
   bool isLoggedIn(String platform) => _loggedIn[platform] ?? false;
@@ -51,7 +50,7 @@ class AuthService {
   AuthService({
     FlutterSecureStorage? storage,
   })  : _storage = storage ?? const FlutterSecureStorage(),
-        state = AuthState(storage ?? const FlutterSecureStorage());
+        state = AuthState();
 
   static const String _keyPrefix = 'cookie_';
   static const String _keySelfUid = 'self_uid_';

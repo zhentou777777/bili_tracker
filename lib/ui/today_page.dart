@@ -38,15 +38,16 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   void _onAuthChanged() {
-    if (mounted)
+    if (mounted) {
       setState(() => _loggedIn = appContext.auth.state.isLoggedIn('bilibili'));
+    }
   }
 
   Future<void> _load() async {
     _loggedIn = await appContext.auth.isLoggedIn('bilibili');
     final DateTime now = DateTime.now();
     final DateTime from = DateTime(now.year, now.month, now.day)
-        .subtract(Duration(days: _days - 1));
+        .subtract(const Duration(days: _days - 1));
 
     final List<FeedItem> items = await appContext.db.queryFeeds(
       from: from,
@@ -348,7 +349,8 @@ class _TodayPageState extends State<TodayPage> {
   Future<void> _open(String url) async {
     if (url.isEmpty) return;
     final Uri uri = Uri.parse(url);
-    if (await canLaunchUrl(uri))
+    if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 }

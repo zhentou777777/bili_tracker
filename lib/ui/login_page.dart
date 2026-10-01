@@ -177,13 +177,13 @@ class _LoginPageState extends State<LoginPage> {
               },
             ),
           ),
-          SafeArea(
+          const SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: EdgeInsets.all(12),
               child: Text(
                 'Cookie 只保存在本机 Keystore，不会上传到任何服务器',
-                style: const TextStyle(
+                style: TextStyle(
                   color: TrackerTheme.textSecondary,
                   fontSize: 11,
                 ),

@@ -26,10 +26,10 @@ class RulesService {
 
   RuleSet? _current;
 
-  RuleSet get current => _current ??= RuleSet(
+  RuleSet get current => _current ??= const RuleSet(
         version: 0,
         updatedAt: '',
-        platforms: const <PlatformRule>[],
+        platforms: <PlatformRule>[],
         source: 'empty',
       );
 

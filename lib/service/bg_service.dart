@@ -47,10 +47,9 @@ void bgCallbackDispatcher() {
 
 class BackgroundService {
   Future<void> register() async {
-    await Workmanager().initialize(
-      bgCallbackDispatcher,
-      isInDebugMode: false,
-    );
+    // 注意：不要传 isInDebugMode —— workmanager 0.9.x 已把它标记为弃用且
+    // 「no effect」（不再有任何作用），官方改为 WorkmanagerDebug 回调。
+    await Workmanager().initialize(bgCallbackDispatcher);
     await Workmanager().registerPeriodicTask(
       kTaskLive,
       kTaskLive,

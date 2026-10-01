@@ -21,7 +21,7 @@ class TrackerTheme {
   static const Color accent = Color(0xFF00AEEC);
 
   static ThemeData build() {
-    final ColorScheme scheme = const ColorScheme.dark(
+    const ColorScheme scheme = ColorScheme.dark(
       primary: brand,
       secondary: accent,
       surface: surface,

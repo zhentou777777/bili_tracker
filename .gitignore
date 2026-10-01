@@ -6,6 +6,7 @@ build/
 .flutter-plugins-dependencies
 android/local.properties
 android/.gradle/
+android/.kotlin/
 android/app/debug/
 android/app/profile/
 android/app/release/

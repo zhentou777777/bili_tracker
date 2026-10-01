@@ -6,7 +6,6 @@ library sync_service;
 import 'dart:math';
 
 import '../core/http.dart';
-import '../data/db.dart';
 import '../platform/bilibili.dart';
 import '../platform/models.dart';
 import 'app_context.dart';

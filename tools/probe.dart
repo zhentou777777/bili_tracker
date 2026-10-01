@@ -7,6 +7,14 @@
 /// 不带 Cookie 时，需要登录的接口会返回 -101，这本身就是「Cookie 失效检测」的验证。
 library probe;
 
+// 本文件是命令行探针（用 dart tools/probe.dart 直接跑），不是打进 App 的
+// 生产代码，因此下面两类 lint 在此处不适用，整文件豁免并说明原因：
+//   avoid_print                    —— 探针的全部输出就是靠 print 打到终端
+//   avoid_relative_lib_imports     —— 故意用相对路径 import lib/ 下的源码，
+//                                     这样不依赖 package:bili_tracker 解析，
+//                                     任何装了 Dart SDK 的机器都能直接跑
+// ignore_for_file: avoid_print, avoid_relative_lib_imports
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -218,7 +226,7 @@ Future<void> main(List<String> args) async {
   print('\n[8] 动态解析（离线样本）');
   _testDynamicParsing();
 
-  print('\n' + '═' * 64);
+  print('\n${'═' * 64}');
   print(' 通过 $_passed  失败 $_failed');
   print('═' * 64);
   if (_failed > 0) exitCode = 1;

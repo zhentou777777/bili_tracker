@@ -89,10 +89,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 style: TextStyle(fontSize: 11)),
             onTap: () async {
               final bool ok = await appContext.notify.requestPermission();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(ok ? '已授权' : '未授权，通知将不会显示')),
-              );
+              _toast(ok ? '已授权' : '未授权，通知将不会显示');
             },
           ),
           ListTile(
@@ -135,9 +132,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         await appContext.rulesService.refreshFromRemote();
                     if (!mounted) return;
                     setState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(ok ? '规则已更新' : '拉取失败，继续用现有规则')),
-                    );
+                    _toast(ok ? '规则已更新' : '拉取失败，继续用现有规则');
                   },
                   child: const Text('保存并刷新'),
                 ),
@@ -155,10 +150,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             onTap: () async {
               await BackgroundService().register();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('已注册后台任务')),
-              );
+              _toast('已注册后台任务');
             },
           ),
           ListTile(
@@ -168,10 +160,7 @@ class _SettingsPageState extends State<SettingsPage> {
             title: const Text('取消后台任务'),
             onTap: () async {
               await BackgroundService().cancelAll();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('已取消')),
-              );
+              _toast('已取消');
             },
           ),
           _section('数据'),
@@ -250,9 +239,20 @@ class _SettingsPageState extends State<SettingsPage> {
     await appContext.auth.clearAll();
     if (!mounted) return;
     await _load();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已清除')),
-    );
+    _toast('已清除');
+  }
+
+  /// 统一的提示入口。
+  ///
+  /// 为什么单独抽一个方法：`await` 之后再直接用 `context` 会踩
+  /// use_build_context_synchronously —— 用户在等待期间切走页面时，
+  /// context 已经失效，会抛 "Looking up a deactivated widget's ancestor"。
+  /// 把「判断 + 使用」收进这个**没有 await**的方法里，判断与使用之间
+  /// 不存在异步间隙，从结构上就不可能出错。
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _section(String title) => Padding(

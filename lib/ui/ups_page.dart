@@ -47,6 +47,19 @@ class _UpsPageState extends State<UpsPage> {
     setState(() => _ups = ups);
   }
 
+  /// 统一的提示入口。
+  ///
+  /// 为什么单独抽一个方法：`await` 之后再直接用 `context` 会踩
+  /// use_build_context_synchronously —— 用户在等待期间切走页面时，
+  /// context 已经失效，会抛 "Looking up a deactivated widget's ancestor"。
+  /// 把「判断 + 使用」收进这个**没有 await**的方法里，判断与使用之间
+  /// 不存在异步间隙，从结构上就不可能出错。
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _pullFollowings() async {
     setState(() => _loading = true);
     final SyncService sync = SyncService(appContext);
@@ -69,11 +82,7 @@ class _UpsPageState extends State<UpsPage> {
       return;
     }
     await _load();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(
-              report.hasError ? report.messages.first : report.toString())),
-    );
+    _toast(report.hasError ? report.messages.first : report.toString());
   }
 
   Future<void> _addUp() async {
@@ -93,9 +102,7 @@ class _UpsPageState extends State<UpsPage> {
     }
     _addCtrl.clear();
     await _load();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已添加 ${up.name}')),
-    );
+    _toast('已添加 ${up.name}');
   }
 
   @override
@@ -324,7 +331,7 @@ class _UpConfigSheetState extends State<_UpConfigSheet> {
                 TextButton(
                   onPressed: () async {
                     await appContext.db.deleteUp(_up.platform, _up.uid);
-                    if (!mounted) return;
+                    if (!context.mounted) return;
                     Navigator.of(context).pop();
                     widget.onChanged();
                   },
