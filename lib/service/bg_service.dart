@@ -56,14 +56,16 @@ class BackgroundService {
       kTaskLive,
       frequency: kLiveInterval,
       constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingWorkPolicy.keep,
+      // registerPeriodicTask 的参数类型是 ExistingPeriodicWorkPolicy（与一次性任务的
+      // ExistingWorkPolicy 是两个不同枚举），作者原代码写错为后者，从未编译故未暴露
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
     );
     await Workmanager().registerPeriodicTask(
       kTaskSync,
       kTaskSync,
       frequency: kSyncInterval,
       constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingWorkPolicy.keep,
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
     );
   }
 

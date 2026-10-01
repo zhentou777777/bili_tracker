@@ -40,6 +40,15 @@ dependencies:
   shared_preferences: ^2.2.2
   url_launcher: ^6.3.0
 
+# workmanager 0.9.x 官方打包缺陷：
+# interface 0.9.4 给 registerOneOffTask/registerPeriodicTask 加了 foregroundServiceConfig 参数，
+# 但 apple 0.9.4 的覆写未同步（缺该参数），任何项目解析到 interface 0.9.4 都会编译失败。
+# 钉回 android 0.9.2 + interface 0.9.3（apple 0.9.4 的覆写与之完全匹配，已逐签名核对）。
+# 注：不能升 workmanager 0.10.x —— 其要求 Flutter >=3.38，本项目锁定 3.32.8。
+dependency_overrides:
+  workmanager_platform_interface: 0.9.3
+  workmanager_android: 0.9.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
