@@ -172,8 +172,10 @@ class _CalendarPageState extends State<CalendarPage> {
         ),
       );
 
-  Widget _weekdayRow() => const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+  // 注意：这里不能写成整块 const —— 列表里用了 for 循环（for-element），
+  // 而 Dart 的常量表达式不支持 for 元素，写 const 会直接编译报错。
+  Widget _weekdayRow() => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           children: <Widget>[
             for (final String w in <String>['一', '二', '三', '四', '五', '六', '日'])
@@ -181,7 +183,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 child: Center(
                   child: Text(
                     w,
-                    style: TextStyle(
+                    style: const TextStyle(
                         fontSize: 12, color: TrackerTheme.textSecondary),
                   ),
                 ),
