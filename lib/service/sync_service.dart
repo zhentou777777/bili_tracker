@@ -3,6 +3,7 @@
 /// 一切请求都由客户端直连平台发起；这里产生的「新增条数」只用于本地通知。
 library sync_service;
 
+import 'dart:convert';
 import 'dart:math';
 
 import '../core/http.dart';
@@ -14,7 +15,6 @@ import 'app_context.dart';
 class SyncReport {
   SyncReport();
 
-  int importedUps = 0;
   int newFeeds = 0;
   int newLive = 0;
 
@@ -31,9 +31,41 @@ class SyncReport {
   void log(String msg) => messages.add(msg);
 
   @override
-  String toString() => '新动态 $newFeeds · 新开播 $newLive · 导入 $importedUps'
+  String toString() => '新动态 $newFeeds · 新开播 $newLive'
       '${cookieInvalid ? ' · Cookie 已失效' : ''}'
       '${riskControl ? ' · 触发风控已降速' : ''}';
+}
+
+/// 关注列表的一次**只读**抓取结果。
+///
+/// 注意：这里不写数据库。关注列表动辄几百位，若自动全量导入，
+/// 后续每一轮抓取都会变成几百次串行请求（几十分钟，且极易触发风控）；
+/// 因此策略调整为「拉全量 → 用户勾选 → 只导入选中的」。
+class FollowListResult {
+  FollowListResult();
+
+  /// 抓到的全部关注（按接口顺序：最近关注在前）。
+  final List<UpCreator> ups = <UpCreator>[];
+
+  /// 接口返回的关注总数；取不到时为 -1。
+  int total = -1;
+
+  /// Cookie 失效，UI 应引导重新登录。
+  bool cookieInvalid = false;
+
+  /// 触发风控，本轮提前结束。
+  bool riskControl = false;
+
+  /// 本结果来自本地缓存时的抓取时间（实时抓取为 null）。
+  DateTime? cachedAt;
+
+  final List<String> messages = <String>[];
+
+  bool get hasError => messages.isNotEmpty;
+
+  String get summary => total > 0
+      ? '已获取 ${ups.length} / 共 $total 位关注'
+      : '已获取 ${ups.length} 位关注';
 }
 
 class SyncService {
@@ -49,41 +81,114 @@ class SyncService {
     'low': Duration(hours: 24),
   };
 
-  /// 拉取关注列表。已有 UP 只更新资料，不动用户配置。
-  Future<SyncReport> syncFollowings() async {
-    final SyncReport report = SyncReport();
+  /// 抓取**完整关注列表**（分页，只读，不写库）。
+  ///
+  /// 与旧版「拉取即全量导入」的区别：旧版抓到什么就全部写进数据库（等于自动
+  /// 追更全部关注），新版只把列表交给界面展示，导入哪些由用户勾选决定。
+  ///
+  /// - [onProgress] 每拿到一页回调一次（已获取条数 / 总数），用于界面进度条。
+  /// - [maxPages] 兜底上限，避免异常账号无限翻页。
+  Future<FollowListResult> fetchFollowings({
+    void Function(int got, int total)? onProgress,
+    int maxPages = 40,
+  }) async {
+    final FollowListResult result = FollowListResult();
     final BilibiliAdapter? adapter = _ctx.bilibiliAdapter();
     if (adapter == null) {
-      report.log('未找到 B 站规则，请更新规则文件');
-      return report;
+      result.messages.add('未找到 B 站规则，请更新规则文件');
+      return result;
     }
     final String? selfUid = await _ctx.auth.selfUid('bilibili');
     if (selfUid == null || selfUid.isEmpty) {
-      report.cookieInvalid = true;
-      report.log('未登录或登录信息不完整');
-      return report;
+      result.cookieInvalid = true;
+      result.messages.add('未登录或登录信息不完整');
+      return result;
     }
 
     try {
-      final List<UpCreator> collected = <UpCreator>[];
-      for (int page = 1; page <= 20; page++) {
-        final List<UpCreator> batch =
-            await adapter.fetchFollowings(selfUid: selfUid, page: page);
-        if (batch.isEmpty) break;
-        collected.addAll(batch);
-        if (batch.length < 50) break;
+      final Set<String> seen = <String>{};
+      for (int page = 1; page <= maxPages; page++) {
+        final FollowPage fp =
+            await adapter.fetchFollowingsPage(selfUid: selfUid, page: page);
+        if (fp.total > 0) result.total = fp.total;
+        for (final UpCreator up in fp.items) {
+          if (up.uid.isEmpty || !seen.add(up.uid)) continue;
+          result.ups.add(up);
+        }
+        onProgress?.call(result.ups.length, result.total);
+
+        if (fp.items.isEmpty || !fp.hasMore) break;
+        // 总数已知且已抓满，不必再多发一次请求
+        if (result.total > 0 && result.ups.length >= result.total) break;
         await _gap();
       }
-      await _ctx.db.upsertUps(collected);
-      report.importedUps = collected.length;
-      if (collected.isEmpty) report.log('关注列表为空');
+      if (result.ups.isEmpty) result.messages.add('关注列表为空');
     } on ApiException catch (e) {
-      _handleApiError(e, report);
+      _handleFollowApiError(e, result);
     } catch (e) {
-      report.log('拉取关注列表失败：$e');
+      result.messages.add('拉取关注列表失败：$e');
     }
-    return report;
+    return result;
   }
+
+  /// 缓存键：关注列表整表（几百条 JSON，缓存后可秒开，避免每次重拉）。
+  static const String _kFollowCacheKey = 'follow_cache_v1';
+
+  /// 把抓到的关注列表写入本地缓存。
+  Future<void> cacheFollowings(FollowListResult result) async {
+    if (result.ups.isEmpty) return;
+    await _ctx.db.setSetting(
+      _kFollowCacheKey,
+      jsonEncode(<String, dynamic>{
+        'at': DateTime.now().millisecondsSinceEpoch,
+        'total': result.total,
+        'ups': <Map<String, dynamic>>[
+          for (final UpCreator up in result.ups) up.toJson(),
+        ],
+      }),
+    );
+  }
+
+  /// 读取上次缓存的关注列表；没有缓存时返回 null。
+  Future<FollowListResult?> loadCachedFollowings() async {
+    final String? raw = await _ctx.db.getSetting(_kFollowCacheKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final Map<String, dynamic> m = Map<String, dynamic>.from(decoded);
+
+      // 用 cast 显式取列表，避免依赖类型提升的细节
+      final Object? rawList = m['ups'];
+      final List<Object?> entries =
+          rawList is List ? rawList.cast<Object?>() : const <Object?>[];
+      if (entries.isEmpty) return null;
+
+      final FollowListResult result = FollowListResult();
+      result.total = m['total'] is num ? (m['total'] as num).toInt() : -1;
+      result.cachedAt = m['at'] is num
+          ? DateTime.fromMillisecondsSinceEpoch((m['at'] as num).toInt())
+          : null;
+      for (final Object? entry in entries) {
+        if (entry is! Map) continue;
+        final UpCreator up = UpCreator.fromJson(Map<String, dynamic>.from(entry));
+        if (up.uid.isNotEmpty) result.ups.add(up);
+      }
+      return result.ups.isEmpty ? null : result;
+    } catch (_) {
+      // 缓存格式失效就当作没有缓存，下一次实时抓取会覆盖它
+      return null;
+    }
+  }
+
+  /// 已追更 UP 的 key 集合（`platform:uid`），供选择页标记「已追更」。
+  Future<Set<String>> trackedKeys() async {
+    final List<UpCreator> ups = await _ctx.db.allUps();
+    return <String>{for (final UpCreator up in ups) up.key};
+  }
+
+  /// 只导入用户勾选的 UP 主（已有的个性化配置不会被覆盖）。
+  Future<int> importSelected(List<UpCreator> ups) => _ctx.db.upsertUps(ups);
 
   /// 按频率策略抓取所有 UP 主的动态与投稿。
   Future<SyncReport> syncAll({bool foreground = true}) async {
@@ -334,22 +439,53 @@ class SyncService {
   }
 
   void _handleApiError(ApiException e, SyncReport report) {
+    final ({String message, bool cookieInvalid, bool riskControl}) c =
+        _classifyApiError(e);
+    report.cookieInvalid = c.cookieInvalid;
+    report.riskControl = c.riskControl;
+    if (c.cookieInvalid) _ctx.auth.markInvalid('bilibili');
+    report.log(c.message);
+  }
+
+  void _handleFollowApiError(ApiException e, FollowListResult result) {
+    final ({String message, bool cookieInvalid, bool riskControl}) c =
+        _classifyApiError(e);
+    result.cookieInvalid = c.cookieInvalid;
+    result.riskControl = c.riskControl;
+    if (c.cookieInvalid) _ctx.auth.markInvalid('bilibili');
+    result.messages.add(c.message);
+  }
+
+  /// 把接口异常归类成用户可见的提示（两个报告类共用，避免两处漂移）。
+  ({String message, bool cookieInvalid, bool riskControl}) _classifyApiError(
+    ApiException e,
+  ) {
     if (e.isNotLogin) {
-      report.cookieInvalid = true;
-      report.log('Cookie 已失效，请重新登录');
-      _ctx.auth.markInvalid('bilibili');
-      return;
+      return (
+        message: 'Cookie 已失效，请重新登录',
+        cookieInvalid: true,
+        riskControl: false,
+      );
     }
     if (e.isRiskControl) {
-      report.riskControl = true;
-      report.log('触发风控（${e.code}），已停止本轮抓取并降速');
-      return;
+      return (
+        message: '触发风控（${e.code}），已停止本轮抓取并降速',
+        cookieInvalid: false,
+        riskControl: true,
+      );
     }
     if (e.isBadSign) {
-      report.log('签名校验失败（${e.code}），WBI 密钥可能已过期');
-      return;
+      return (
+        message: '签名校验失败（${e.code}），WBI 密钥可能已过期',
+        cookieInvalid: false,
+        riskControl: false,
+      );
     }
-    report.log('接口错误 ${e.code}：${e.message}');
+    return (
+      message: '接口错误 ${e.code}：${e.message}',
+      cookieInvalid: false,
+      riskControl: false,
+    );
   }
 
   /// 请求之间的间隔，避免短时间高频。

@@ -68,17 +68,27 @@ class _TodayPageState extends State<TodayPage> {
 
     final SyncService sync = SyncService(appContext);
     final bool firstRun = await appContext.db.upCount() == 0;
+    if (!mounted) return;
 
     if (firstRun) {
-      final report = await sync.syncFollowings();
-      _lastReport = report.hasError
-          ? report.messages.first
-          : '导入 ${report.importedUps} 位 UP 主';
-      if (report.cookieInvalid && mounted) {
-        setState(() => _loading = false);
-        _promptRelogin();
-        return;
-      }
+      // 策略调整（2026-10-02）：不再「首次刷新就自动导入全部关注」。
+      // 关注列表动辄几百位，全量导入后每一轮抓取要串行请求几百次，
+      // 耗时长且极易触发风控；改为引导用户自己去勾选想追更的几位。
+      setState(() {
+        _loading = false;
+        _lastReport = '还没有追更对象，去「UP 主」页从关注列表里选择';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('还没有追更对象，先从关注列表里挑几位'),
+          action: SnackBarAction(
+            label: '去选择',
+            onPressed: () =>
+                context.findAncestorStateOfType<HomeShellState>()?.goTo(2),
+          ),
+        ),
+      );
+      return;
     }
 
     final feeds = await sync.syncAll(foreground: true);

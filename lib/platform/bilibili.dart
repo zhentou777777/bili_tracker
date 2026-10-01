@@ -39,8 +39,20 @@ class BilibiliAdapter {
     return null;
   }
 
-  /// 当前登录用户的关注列表。
+  /// 当前登录用户的关注列表（单页，仅返回条目）。
   Future<List<UpCreator>> fetchFollowings({
+    required String selfUid,
+    int page = 1,
+  }) async =>
+      (await fetchFollowingsPage(selfUid: selfUid, page: page)).items;
+
+  /// 关注列表单页 + 关注总数。
+  ///
+  /// 相比 [fetchFollowings] 多返回 `total`（接口的 `data.total`），
+  /// 供界面显示「已获取 x / 共 y」的进度，并据此判断是否已翻完。
+  ///
+  /// 本方法**只读**，不写数据库 —— 是否追更由用户在列表里勾选后决定。
+  Future<FollowPage> fetchFollowingsPage({
     required String selfUid,
     int page = 1,
   }) async {
@@ -53,13 +65,31 @@ class BilibiliAdapter {
 
     final EndpointRule ep = _requireEndpoint('followings');
     final Object? list = getByPath(json, ep.listPath);
-    if (list is! List) return const <UpCreator>[];
-
-    return <UpCreator>[
-      for (final Object? raw in list)
-        if (raw is Map)
-          _upFromGeneric(Map<String, dynamic>.from(raw), ep.itemMap),
+    final List<UpCreator> items = <UpCreator>[
+      if (list is List)
+        for (final Object? raw in list)
+          if (raw is Map)
+            _upFromGeneric(Map<String, dynamic>.from(raw), ep.itemMap),
     ];
+
+    int total = -1;
+    if (ep.totalPath.isNotEmpty) {
+      final Object? rawTotal = getByPath(json, ep.totalPath);
+      if (rawTotal is num) total = rawTotal.toInt();
+    }
+
+    return FollowPage(
+      items: items,
+      total: total,
+      // 每页条数取自规则文件的 ps 参数，规则改了也不会误判「没有下一页」
+      hasMore: items.isNotEmpty && items.length >= _followPageSize(ep),
+    );
+  }
+
+  /// 规则文件里 followings 端点的每页条数（取不到时按 B 站默认 50）。
+  static int _followPageSize(EndpointRule ep) {
+    final int? ps = int.tryParse(ep.params['ps'] ?? '');
+    return ps != null && ps > 0 ? ps : 50;
   }
 
   /// 单个 UP 主的动态（space_history）。
@@ -317,6 +347,23 @@ class DynamicPage {
 
   final List<FeedItem> items;
   final String nextOffset;
+  final bool hasMore;
+}
+
+/// 关注列表的单页结果。
+class FollowPage {
+  const FollowPage({
+    required this.items,
+    required this.total,
+    required this.hasMore,
+  });
+
+  final List<UpCreator> items;
+
+  /// 接口返回的关注总数；取不到时为 -1。
+  final int total;
+
+  /// 是否还有下一页。
   final bool hasMore;
 }
 

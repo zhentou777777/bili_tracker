@@ -4,7 +4,7 @@ import '../main.dart';
 import '../platform/models.dart';
 import '../service/sync_service.dart';
 import 'app.dart';
-import 'login_page.dart';
+import 'follow_picker_page.dart';
 
 /// 订阅管理：分组、抓取频率、推送开关。
 class UpsPage extends StatefulWidget {
@@ -60,29 +60,12 @@ class _UpsPageState extends State<UpsPage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _pullFollowings() async {
-    setState(() => _loading = true);
-    final SyncService sync = SyncService(appContext);
-    final report = await sync.syncFollowings();
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    if (report.cookieInvalid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('登录已失效'),
-          action: SnackBarAction(
-            label: '去登录',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const LoginPage()),
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-    await _load();
-    _toast(report.hasError ? report.messages.first : report.toString());
+  Future<void> _openPicker() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FollowPickerPage(onImported: _load),
+      ),
+    );
   }
 
   Future<void> _addUp() async {
@@ -118,9 +101,9 @@ class _UpsPageState extends State<UpsPage> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.sync),
-            tooltip: '从 B 站拉取关注列表',
-            onPressed: _pullFollowings,
+                : const Icon(Icons.playlist_add_check),
+            tooltip: '从关注列表里挑选要追更的 UP 主',
+            onPressed: _openPicker,
           ),
         ],
       ),
@@ -132,9 +115,14 @@ class _UpsPageState extends State<UpsPage> {
           Expanded(
             child: _ups.isEmpty
                 ? const Center(
-                    child: Text(
-                      '还没有订阅，点上方 ↻ 拉取关注列表，或手动添加',
-                      style: TextStyle(color: TrackerTheme.textSecondary),
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        '还没有追更对象。\n点右上角「选择追更」，从你的 B 站关注列表里勾选；'
+                        '也可以在上面输入 UID 手动添加。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: TrackerTheme.textSecondary),
+                      ),
                     ),
                   )
                 : ListView.builder(
