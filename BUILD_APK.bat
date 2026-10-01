@@ -14,30 +14,17 @@ echo    追更台 bili_tracker —— 一键编译 APK
 echo ============================================================
 echo.
 
-echo [1/6] 检查编译环境……
+echo [1/3] 检查编译环境……
 call flutter --version
 if errorlevel 1 goto :envfail
 
 echo.
-echo [2/6] 备份现有 android 目录（防止模板覆盖手写配置）……
-if exist "android_backup" rd /s /q "android_backup"
-xcopy /e /i /q /y "android" "android_backup" >nul
-echo      OK —— 已备份到 android_backup\
-
-echo.
-echo [3/6] 补齐 Android 构建模板（缺失的 gradle wrapper 等）……
-call flutter create --platforms=android . >nul 2>&1
-echo      正在还原手写配置文件……
-xcopy /e /i /q /y "android_backup" "android" >nul
-echo      OK
-
-echo.
-echo [4/6] 拉取依赖包（第一次会下载，请耐心等）……
+echo [2/3] 拉取依赖包（已全部缓存，通常十几秒）……
 call flutter pub get
 if errorlevel 1 goto :fail
 
 echo.
-echo [5/6] 开始编译 APK —— 第一次约 5 到 15 分钟，请勿关闭窗口！
+echo [3/3] 开始编译 APK（预计 5～15 分钟，请勿关闭窗口！）……
 echo.
 call flutter build apk --release
 if errorlevel 1 (
@@ -48,7 +35,8 @@ if errorlevel 1 (
 )
 
 echo.
-echo [6/6] 编译完成！
+echo ============================================================
+echo   编译完成！
 echo.
 echo   APK 输出目录：
 echo   %cd%\build\app\outputs\flutter-apk\
@@ -56,10 +44,9 @@ echo.
 echo   生成的安装包：
 dir /b "build\app\outputs\flutter-apk\*.apk" 2>nul
 echo.
-echo ------------------------------------------------------------
 echo   把上面列出的 .apk 传到手机，点击安装即可。
 echo   若手机提示"未知来源"，请在设置里允许安装。
-echo ------------------------------------------------------------
+echo ============================================================
 echo.
 pause
 exit /b 0
@@ -69,7 +56,6 @@ echo.
 echo ============================================================
 echo   错误：找不到可用的 Flutter 环境
 echo   请确认目录存在：%FLUTTER_ROOT%
-echo   如目录不存在，请先安装 Flutter SDK。
 echo ============================================================
 echo.
 pause
