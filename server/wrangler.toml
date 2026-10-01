@@ -1,0 +1,25 @@
+name = "bili-tracker-relay"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# 开播兜底轮询：每 10 分钟一次（Cron 最短间隔）
+[triggers]
+crons = ["*/10 * * * *"]
+
+# 规则 JSON 存放在 KV，改规则不用重新部署
+[[kv_namespaces]]
+binding = "RULES_KV"
+id = "请替换为你的 KV namespace id"
+
+# 开播状态去重 + 订阅 token（第二阶段启用）
+[[kv_namespaces]]
+binding = "LIVE_KV"
+id = "请替换为你的 KV namespace id"
+
+[[kv_namespaces]]
+binding = "WATCH_KV"
+id = "请替换为你的 KV namespace id"
+
+[vars]
+# 以下非敏感配置直接写在 vars；敏感值用 `wrangler secret put`
+APNS_SANDBOX = "false"

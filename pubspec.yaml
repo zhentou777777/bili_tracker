@@ -1,0 +1,51 @@
+name: bili_tracker
+description: 多 UP 主综合追更工具 —— 客户端 Cookie 直连，服务端零代理
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 网络（WBI 签名用的 MD5 自带实现，见 lib/core/md5.dart，不引第三方）
+  dio: ^5.4.0
+
+  # 安全存储：Cookie 落 Keystore / Keychain，永不上传
+  flutter_secure_storage: ^9.0.0
+
+  # 登录 WebView：需要读取 HttpOnly 的 SESSDATA，
+  # webview_flutter 官方只有 set/clear、没有读取 API，因此用 inappwebview 的 CookieManager
+  flutter_inappwebview: ^6.1.0
+
+  # Cookie jar：自动维护 buvid3 等设备指纹，缺失会触发 -352 风控
+  dio_cookie_manager: ^3.1.0
+  cookie_jar: ^4.0.8
+
+  # 本地数据库：手写 SQL，无代码生成步骤，clone 下来即可编译
+  sqflite: ^2.3.0
+  path_provider: ^2.1.2
+  path: ^1.9.0
+
+  # 本地通知
+  flutter_local_notifications: ^17.2.2
+
+  # 后台任务
+  workmanager: ^0.9.0
+
+  # 配置 / 工具
+  shared_preferences: ^2.2.2
+  url_launcher: ^6.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/rules/

@@ -1,0 +1,121 @@
+{
+  "version": 3,
+  "updated_at": "2025-01-01T00:00:00Z",
+  "notes": "接口规则表。App 内置此文件作为兜底，启动时可拉取远端同名文件覆盖，接口变动无需发版。",
+  "platforms": [
+    {
+      "id": "bilibili",
+      "name": "哔哩哔哩",
+      "brand_color": "#FB7299",
+      "enabled": true,
+      "sign": "wbi",
+      "login_url": "https://passport.bilibili.com/h5-app/passport/login",
+      "cookie_domains": [".bilibili.com"],
+      "required_cookies": ["SESSDATA", "bili_jct", "DedeUserID"],
+      "device_cookies": ["buvid3", "buvid4", "b_nut"],
+      "self_uid_cookie": "DedeUserID",
+      "self_check_endpoint": "nav",
+      "endpoints": {
+        "nav": {
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "method": "GET",
+          "referer": "https://www.bilibili.com/",
+          "require_cookie": false,
+          "require_sign": false,
+          "note": "WBI 密钥来源；未登录也返回 wbi_img"
+        },
+        "followings": {
+          "url": "https://api.bilibili.com/x/relation/followings",
+          "method": "GET",
+          "referer": "https://space.bilibili.com/{self_uid}/fans/follow",
+          "require_cookie": true,
+          "require_sign": false,
+          "params": { "vmid": "{self_uid}", "pn": "{page}", "ps": "50", "order": "desc", "order_type": "attention" },
+          "list_path": "data.list",
+          "total_path": "data.total",
+          "parser": "generic",
+          "item_map": { "uid": "mid", "name": "uname", "face": "face", "sign": "sign" }
+        },
+        "dynamics": {
+          "url": "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history",
+          "method": "GET",
+          "referer": "https://space.bilibili.com/{uid}/dynamic",
+          "require_cookie": true,
+          "require_sign": false,
+          "params": { "host_uid": "{uid}", "offset_dynamic_id": "{offset}", "need_top": "0", "platform": "web" },
+          "list_path": "data.cards",
+          "next_offset_path": "data.next_offset",
+          "has_more_path": "data.has_more",
+          "parser": "bilibili_dynamic"
+        },
+        "videos": {
+          "url": "https://api.bilibili.com/x/space/arc/search",
+          "method": "GET",
+          "referer": "https://space.bilibili.com/{uid}/video",
+          "require_cookie": true,
+          "require_sign": true,
+          "params": { "mid": "{uid}", "pn": "{page}", "ps": "30", "order": "pubdate", "platform": "web", "web_location": "1550101" },
+          "list_path": "data.list.vlist",
+          "parser": "generic",
+          "item_map": { "id": "bvid", "title": "title", "cover": "pic", "time": "created", "desc": "description", "duration": "length", "play": "play" }
+        },
+        "live_status": {
+          "url": "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids",
+          "method": "GET",
+          "referer": "https://live.bilibili.com/",
+          "require_cookie": false,
+          "require_sign": false,
+          "repeat_param": { "uids[]": "{uid}" },
+          "parser": "bilibili_live",
+          "note": "公开接口，实测无需 Cookie —— 后台开播轮询依赖它，App 被杀后也可由服务端兜底"
+        },
+        "user_info": {
+          "url": "https://api.bilibili.com/x/space/wbi/acc/info",
+          "method": "GET",
+          "referer": "https://space.bilibili.com/{uid}/",
+          "require_cookie": false,
+          "require_sign": true,
+          "params": { "mid": "{uid}", "platform": "web", "web_location": "1550101" },
+          "parser": "generic",
+          "item_map": { "uid": "mid", "name": "name", "face": "face", "sign": "sign" }
+        }
+      }
+    },
+    {
+      "id": "weibo",
+      "name": "微博",
+      "brand_color": "#E6162D",
+      "enabled": false,
+      "sign": "none",
+      "login_url": "https://passport.weibo.com/sso/signin",
+      "cookie_domains": [".weibo.com", ".sina.com.cn"],
+      "required_cookies": ["SUB", "SUBP", "SSOLoginState"],
+      "device_cookies": [],
+      "self_uid_cookie": "",
+      "self_check_endpoint": "",
+      "endpoints": {
+        "followings": {
+          "url": "https://weibo.com/ajax/profile/followContent",
+          "method": "GET",
+          "referer": "https://weibo.com/",
+          "require_cookie": true,
+          "require_sign": false,
+          "params": { "uid": "{self_uid}", "page": "{page}" },
+          "list_path": "data.follows",
+          "parser": "generic",
+          "item_map": { "uid": "id", "name": "screen_name", "face": "profile_image_url" }
+        },
+        "dynamics": {
+          "url": "https://weibo.com/ajax/statuses/mymblog",
+          "method": "GET",
+          "referer": "https://weibo.com/u/{uid}",
+          "require_cookie": true,
+          "require_sign": false,
+          "params": { "uid": "{uid}", "page": "{page}", "feature": "0" },
+          "list_path": "data.list",
+          "parser": "weibo_status"
+        }
+      }
+    }
+  ]
+}
