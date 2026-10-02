@@ -227,6 +227,41 @@ class LiveStatus {
       };
 }
 
+/// 一条「最近观看的直播」记录（来自 B 站观看历史，`history/cursor?type=live`）。
+///
+/// 用于「自动追更最近观看直播的已关注主播」：把这里的 uid 和关注列表求交集，
+/// 命中的就是「关注了、而且最近真的点进去看过直播」的主播。
+class WatchedLive {
+  WatchedLive({
+    required this.uid,
+    this.name = '',
+    this.face = '',
+    this.roomId = '',
+    this.title = '',
+    this.cover = '',
+    this.viewedAt,
+  });
+
+  /// 主播 UID（历史记录的 `author_mid`）。
+  final String uid;
+  final String name;
+  final String face;
+  final String roomId;
+  final String title;
+  final String cover;
+  final DateTime? viewedAt;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'uid': uid,
+        'name': name,
+        'face': face,
+        'room_id': roomId,
+        'title': title,
+        'cover': cover,
+        'viewed_at': viewedAt?.millisecondsSinceEpoch,
+      };
+}
+
 /// 一次完成的直播场次（用于日历标记）。
 class LiveSession {
   LiveSession({

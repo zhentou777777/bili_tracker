@@ -99,6 +99,20 @@ Future<void> main(List<String> args) async {
       return;
     }
     ok('端点数量', '${bili.endpoints.length} 个：${bili.endpoints.keys.join(', ')}');
+    // 动态端点必须是新版 polymer 接口 —— 旧 dynamic_svr/space_history 已 404，
+    // 这条断言就是为了防止回退到死端点。
+    final String dynUrl = bili.endpoint('dynamics')?.url ?? '';
+    if (dynUrl.contains('polymer/web-dynamic/v1/feed/space')) {
+      ok('动态端点', dynUrl);
+    } else {
+      fail('动态端点', '仍是旧接口，会 404：$dynUrl');
+    }
+    final String liveHistUrl = bili.endpoint('live_history')?.url ?? '';
+    if (liveHistUrl.contains('history/cursor')) {
+      ok('观看历史端点', liveHistUrl);
+    } else {
+      fail('观看历史端点', '缺失或地址不对：$liveHistUrl');
+    }
   } catch (e) {
     fail('规则解析', '$e');
     return;
@@ -179,8 +193,8 @@ Future<void> main(List<String> args) async {
     fail('直播状态', '$e');
   }
 
-  // 7. 需要 Cookie 的接口：验证错误分支
-  print('\n[7] 需登录接口的失效检测');
+  // 7. 需要 Cookie 的接口
+  print('\n[7] 需登录接口（关注列表 / 动态 / 最近观看的直播）');
   if (cookie.isEmpty) {
     try {
       await probeAdapter.fetchFollowings(selfUid: '2');
@@ -193,6 +207,26 @@ Future<void> main(List<String> args) async {
       }
     } catch (e) {
       warn('关注列表', '$e');
+    }
+
+    // 动态端点存活探测：404 = 端点已下线（正是本次要修的 bug）
+    try {
+      final DynamicPage page = await probeAdapter.fetchDynamics(uid: '2');
+      if (page.items.isEmpty) {
+        warn('动态端点', 'HTTP 200 但 0 条（无 buvid3 时会被限制，属预期）');
+      } else {
+        ok('动态端点', '解析出 ${page.items.length} 条');
+      }
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) {
+        fail('动态端点', 'HTTP 404 —— 端点已下线，必须更新规则文件');
+      } else if (e.isRiskControl) {
+        warn('动态端点', 'HTTP ${e.statusCode} 风控（缺 buvid3 时正常）—— 端点本身存在');
+      } else {
+        warn('动态端点', '${e.code} ${e.message}');
+      }
+    } catch (e) {
+      warn('动态端点', '$e');
     }
   } else {
     try {
@@ -220,11 +254,28 @@ Future<void> main(List<String> args) async {
         warn('关注列表', '${e.code} ${e.message}');
       }
     }
+
+    // 最近观看的直播：自动追更策略的数据源
+    try {
+      final List<WatchedLive> watched = await probeAdapter.fetchWatchedLives();
+      ok('最近观看的直播', '${watched.length} 场');
+      for (final WatchedLive w in watched.take(5)) {
+        print('     uid=${w.uid} ${w.name} room=${w.roomId} ${w.viewedAt}');
+      }
+    } on ApiException catch (e) {
+      warn('最近观看的直播', '${e.code} ${e.message}');
+    } catch (e) {
+      warn('最近观看的直播', '$e');
+    }
   }
 
-  // 8. 动态解析单测（离线样本，覆盖各 type）
-  print('\n[8] 动态解析（离线样本）');
+  // 8. 新版动态解析单测（离线样本，覆盖各 major 分支）
+  print('\n[8] 新版动态解析（离线样本）');
   _testDynamicParsing();
+
+  // 9. 观看历史解析单测（离线样本）
+  print('\n[9] 最近观看直播解析（离线样本）');
+  _testLiveHistoryParsing();
 
   print('\n${'═' * 64}');
   print(' 通过 $_passed  失败 $_failed');
@@ -281,122 +332,309 @@ print(q + "&w_rid=" + hashlib.md5((q+mixin).encode()).hexdigest())
   }
 }
 
+/// 构造一条最小可用的新版动态 item。
+Map<String, dynamic> _item({
+  required String id,
+  required String type,
+  String name = '碧诗',
+  int mid = 2,
+  int pubTs = 1783878096,
+  Map<String, dynamic>? dyn,
+  Map<String, dynamic>? stat,
+  Map<String, dynamic>? orig,
+}) =>
+    <String, dynamic>{
+      'id_str': id,
+      'type': type,
+      'modules': <String, dynamic>{
+        'module_author': <String, dynamic>{
+          'mid': mid,
+          'name': name,
+          'face': '//i2.hdslb.com/face.jpg',
+          'pub_ts': pubTs,
+        },
+        'module_dynamic': dyn ?? <String, dynamic>{},
+        if (stat != null) 'module_stat': stat,
+      },
+      if (orig != null) 'orig': orig,
+    };
+
+/// 新版动态结构离线样本：字段与 2026-10 实测响应一致（已裁剪无关字段）。
 void _testDynamicParsing() {
-  // 构造各 type 的最小可用样本，验证字段抽取路径
-  final List<Map<String, dynamic>> samples = <Map<String, dynamic>>[
-    <String, dynamic>{
-      '_label': 'type=8 视频',
-      'desc': <String, dynamic>{
-        'dynamic_id': 1001,
-        'type': 8,
-        'timestamp': 1700000000,
-        'bvid': 'BV1xx411c7mD',
-        'user_profile': <String, dynamic>{
-          'info': <String, dynamic>{'uid': 2, 'uname': '碧诗', 'face': '//i2.hdslb.com/a.jpg'},
+  final List<({String label, Map<String, dynamic> item, FeedKind kind, String urlPart})>
+      samples =
+      <({String label, Map<String, dynamic> item, FeedKind kind, String urlPart})>[
+    (
+      label: '视频 MAJOR_TYPE_ARCHIVE',
+      kind: FeedKind.video,
+      urlPart: 'https://www.bilibili.com/video/BV1ujNV6qEXg',
+      item: _item(
+        id: '1224236172397510665',
+        type: 'DYNAMIC_TYPE_AV',
+        dyn: <String, dynamic>{
+          'desc': null,
+          'major': <String, dynamic>{
+            'type': 'MAJOR_TYPE_ARCHIVE',
+            'archive': <String, dynamic>{
+              'bvid': 'BV1ujNV6qEXg',
+              'title': '帮不帮？',
+              'desc': '去还是不去？',
+              'cover': 'http://i2.hdslb.com/bfs/archive/x.jpg',
+              'duration_text': '00:22',
+              'jump_url': '//www.bilibili.com/video/BV1ujNV6qEXg',
+              'stat': <String, dynamic>{'play': '70.9万'},
+            },
+          },
         },
-      },
-      'card': jsonEncode(<String, dynamic>{
-        'item': <String, dynamic>{
-          'title': '测试视频标题',
-          'desc': '视频简介',
-          'pic': '//i0.hdslb.com/cover.jpg',
+      ),
+    ),
+    (
+      label: '图文 MAJOR_TYPE_OPUS（有配图）',
+      kind: FeedKind.image,
+      urlPart: 'https://www.bilibili.com/opus/1253052791646060563',
+      item: _item(
+        id: '1253052791646060563',
+        type: 'DYNAMIC_TYPE_DRAW',
+        name: 'A-SOUL_Official',
+        mid: 703007996,
+        dyn: <String, dynamic>{
+          'desc': null,
+          'major': <String, dynamic>{
+            'type': 'MAJOR_TYPE_OPUS',
+            'opus': <String, dynamic>{
+              'jump_url': '//www.bilibili.com/opus/1253052791646060563',
+              'title': '',
+              'summary': <String, dynamic>{'text': '周边余量已上架，欢迎购入~'},
+              'pics': <Map<String, dynamic>>[
+                <String, dynamic>{'url': '//i0.hdslb.com/p1.jpg', 'width': 1200},
+              ],
+            },
+          },
         },
-      }),
-    },
-    <String, dynamic>{
-      '_label': 'type=2 图文',
-      'desc': <String, dynamic>{
-        'dynamic_id': 1002,
-        'type': 2,
-        'timestamp': 1700000100,
-        'user_profile': <String, dynamic>{
-          'info': <String, dynamic>{'uid': 2, 'uname': '碧诗'},
+        stat: <String, dynamic>{'like': <String, dynamic>{'count': 789}},
+      ),
+    ),
+    (
+      label: '纯文字 MAJOR_TYPE_OPUS（无配图）',
+      kind: FeedKind.text,
+      urlPart: 'https://www.bilibili.com/opus/1253728007744389129',
+      item: _item(
+        id: '1253728007744389129',
+        type: 'DYNAMIC_TYPE_WORD',
+        dyn: <String, dynamic>{
+          'desc': <String, dynamic>{'text': '今天休息一天，明天见~'},
+          'major': <String, dynamic>{
+            'type': 'MAJOR_TYPE_OPUS',
+            'opus': <String, dynamic>{
+              'jump_url': '//www.bilibili.com/opus/1253728007744389129',
+              'summary': <String, dynamic>{'text': '今天休息一天，明天见~'},
+              'pics': <Object?>[],
+            },
+          },
         },
-      },
-      'card': jsonEncode(<String, dynamic>{
-        'item': <String, dynamic>{
-          'description': '图文正文',
-          'pictures': <Map<String, dynamic>>[
-            <String, dynamic>{'img_src': '//i0.hdslb.com/p1.jpg'},
-          ],
+      ),
+    ),
+    (
+      label: '转发（含原动态）',
+      kind: FeedKind.repost,
+      urlPart: 'https://www.bilibili.com/video/BV19PMr6FEfw',
+      item: _item(
+        id: '1233396749236699159',
+        type: 'DYNAMIC_TYPE_FORWARD',
+        dyn: <String, dynamic>{
+          'desc': <String, dynamic>{'text': '翻得好！'},
         },
-      }),
-    },
-    <String, dynamic>{
-      '_label': 'type=4 文字',
-      'desc': <String, dynamic>{
-        'dynamic_id': 1003,
-        'type': 4,
-        'timestamp': 1700000200,
-        'user_profile': <String, dynamic>{
-          'info': <String, dynamic>{'uid': 2, 'uname': '碧诗'},
+        orig: _item(
+          id: '1233396000000000000',
+          type: 'DYNAMIC_TYPE_AV',
+          name: '横川是川崽耶',
+          mid: 12345,
+          dyn: <String, dynamic>{
+            'major': <String, dynamic>{
+              'type': 'MAJOR_TYPE_ARCHIVE',
+              'archive': <String, dynamic>{
+                'bvid': 'BV19PMr6FEfw',
+                'title': '请 汤 上 身',
+                'cover': '//i1.hdslb.com/cover.jpg',
+              },
+            },
+          },
+        ),
+      ),
+    ),
+    (
+      label: '专栏 MAJOR_TYPE_ARTICLE',
+      kind: FeedKind.article,
+      urlPart: 'https://www.bilibili.com/read/cv88888',
+      item: _item(
+        id: '1000000000000000005',
+        type: 'DYNAMIC_TYPE_ARTICLE',
+        dyn: <String, dynamic>{
+          'major': <String, dynamic>{
+            'type': 'MAJOR_TYPE_ARTICLE',
+            'article': <String, dynamic>{
+              'id': 88888,
+              'title': '专栏标题',
+              'desc': '专栏摘要',
+              'covers': <String>['//i0.hdslb.com/banner.jpg'],
+              'jump_url': '//www.bilibili.com/read/cv88888',
+            },
+          },
         },
-      },
-      'card': jsonEncode(<String, dynamic>{
-        'item': <String, dynamic>{'content': '纯文字动态'},
-      }),
-    },
-    <String, dynamic>{
-      '_label': 'type=1 转发',
-      'desc': <String, dynamic>{
-        'dynamic_id': 1004,
-        'type': 1,
-        'timestamp': 1700000300,
-        'user_profile': <String, dynamic>{
-          'info': <String, dynamic>{'uid': 2, 'uname': '碧诗'},
+      ),
+    ),
+    (
+      label: '直播 MAJOR_TYPE_LIVE_RCMD',
+      kind: FeedKind.live,
+      urlPart: 'https://live.bilibili.com/22637261',
+      item: _item(
+        id: '1000000000000000006',
+        type: 'DYNAMIC_TYPE_LIVE_RCMD',
+        dyn: <String, dynamic>{
+          'major': <String, dynamic>{
+            'type': 'MAJOR_TYPE_LIVE_RCMD',
+            'live_rcmd': <String, dynamic>{
+              // 真实响应里 content 是被转义的 JSON 字符串
+              'content': jsonEncode(<String, dynamic>{
+                'live_play_info': <String, dynamic>{
+                  'room_id': 22637261,
+                  'title': '今晚八点开播',
+                  'area_name': '虚拟主播',
+                  'online': 1234,
+                  'cover': '//i0.hdslb.com/live.jpg',
+                },
+              }),
+            },
+          },
         },
-      },
-      'card': jsonEncode(<String, dynamic>{
-        'item': <String, dynamic>{'content': '转发理由'},
-      }),
-    },
-    <String, dynamic>{
-      '_label': 'type=64 专栏',
-      'desc': <String, dynamic>{
-        'dynamic_id': 1005,
-        'type': 64,
-        'timestamp': 1700000400,
-        'rid': 88888,
-        'user_profile': <String, dynamic>{
-          'info': <String, dynamic>{'uid': 2, 'uname': '碧诗'},
+      ),
+    ),
+    (
+      label: '通用卡片 MAJOR_TYPE_COMMON',
+      kind: FeedKind.unknown,
+      urlPart: 'https://www.bilibili.com',
+      item: _item(
+        id: '1000000000000000007',
+        type: 'DYNAMIC_TYPE_COMMON_SQUARE',
+        dyn: <String, dynamic>{
+          'major': <String, dynamic>{
+            'type': 'MAJOR_TYPE_COMMON',
+            'common': <String, dynamic>{
+              'title': '通用卡片标题',
+              'desc': '通用卡片描述',
+              'jump_url': '//www.bilibili.com/blackboard/activity-x.html',
+            },
+          },
         },
-      },
-      'card': jsonEncode(<String, dynamic>{
-        'title': '专栏标题',
-        'summary': '专栏摘要',
-        'banner_url': '//i0.hdslb.com/banner.jpg',
-      }),
-    },
-    <String, dynamic>{
-      '_label': 'type=2048 直播',
-      'desc': <String, dynamic>{
-        'dynamic_id': 1006,
-        'type': 2048,
-        'timestamp': 1700000500,
-        'user_profile': <String, dynamic>{
-          'info': <String, dynamic>{'uid': 2, 'uname': '碧诗'},
-        },
-      },
-      'card': jsonEncode(<String, dynamic>{
-        'live_play_info': <String, dynamic>{'title': '直播间标题', 'room_id': 1024},
-      }),
-    },
+      ),
+    ),
   ];
 
-  for (final Map<String, dynamic> s in samples) {
-    final String label = s['_label'] as String;
-    s.remove('_label');
-    final FeedItem? item = parseDynamicCard(s);
-    if (item == null) {
-      fail('解析 $label', '返回 null');
+  for (final ({String label, Map<String, dynamic> item, FeedKind kind, String urlPart}) s
+      in samples) {
+    final FeedItem? it = parseDynamicItem(s.item);
+    if (it == null) {
+      fail('解析 ${s.label}', '返回 null');
       continue;
     }
-    final String brief = item.title.isEmpty ? item.summary : item.title;
+    final String brief = it.title.isEmpty ? it.summary : it.title;
     if (brief.isEmpty) {
-      fail('解析 $label', '标题与摘要均为空');
-    } else {
-      ok('解析 $label',
-          '${feedKindLabel(item.kind)} | ${item.upName} | $brief | ${item.url}');
+      fail('解析 ${s.label}', '标题与摘要均为空');
+      continue;
     }
+    if (it.kind != s.kind) {
+      fail('解析 ${s.label}', '类型=${it.kind.name} 期望=${s.kind.name}');
+      continue;
+    }
+    if (!it.url.contains(s.urlPart)) {
+      fail('解析 ${s.label}', 'url=${it.url} 期望包含 ${s.urlPart}');
+      continue;
+    }
+    ok('解析 ${s.label}',
+        '${feedKindLabel(it.kind)} | ${it.upName} | $brief | ${it.url}');
+  }
+
+  // 转发必须把原动态正文折进来，否则界面上只剩一句「分享动态」
+  final FeedItem? repost = parseDynamicItem(_item(
+    id: '1',
+    type: 'DYNAMIC_TYPE_FORWARD',
+    dyn: <String, dynamic>{
+      'desc': <String, dynamic>{'text': '翻得好！'},
+    },
+    orig: _item(
+      id: '2',
+      type: 'DYNAMIC_TYPE_DRAW',
+      name: '横川是川崽耶',
+      dyn: <String, dynamic>{
+        'major': <String, dynamic>{
+          'type': 'MAJOR_TYPE_OPUS',
+          'opus': <String, dynamic>{
+            'summary': <String, dynamic>{'text': '请 汤 上 身'},
+            'pics': <Map<String, dynamic>>[
+              <String, dynamic>{'url': '//i0.hdslb.com/p.jpg'},
+            ],
+          },
+        },
+      },
+    ),
+  ));
+  if (repost != null && repost.summary.contains('请 汤 上 身')) {
+    ok('转发折入原动态正文', repost.summary);
+  } else {
+    fail('转发折入原动态正文', '实际=${repost?.summary}');
+  }
+
+  // id 缺失必须返回 null（不能让半条脏数据进库）
+  if (parseDynamicItem(<String, dynamic>{'type': 'DYNAMIC_TYPE_WORD'}) == null) {
+    ok('缺 id_str 返回 null', '防脏数据');
+  } else {
+    fail('缺 id_str 返回 null', '却解析出了对象');
+  }
+}
+
+/// 最近观看直播：离线样本 + 边界（缺 author_mid 必须丢弃）。
+void _testLiveHistoryParsing() {
+  final WatchedLive? w = parseLiveHistoryItem(<String, dynamic>{
+    'title': '今晚八点开播',
+    'cover': '//i0.hdslb.com/live.jpg',
+    'uri': 'https://live.bilibili.com/22637261',
+    'history': <String, dynamic>{'oid': 22637261, 'business': 'live'},
+    'author_name': '嘉然今天吃什么',
+    'author_face': '//i1.hdslb.com/face.jpg',
+    'author_mid': 672328094,
+    'view_at': 1786000000,
+    'tag_name': '直播',
+  });
+  if (w == null) {
+    fail('解析直播历史', '返回 null');
+  } else if (w.uid == '672328094' &&
+      w.roomId == '22637261' &&
+      w.name == '嘉然今天吃什么' &&
+      w.viewedAt?.year == 2026 &&
+      w.face.startsWith('https://')) {
+    ok('解析直播历史',
+        'uid=${w.uid} ${w.name} room=${w.roomId} ${w.viewedAt} face=${w.face}');
+  } else {
+    fail('解析直播历史', '字段不对：uid=${w.uid} room=${w.roomId} name=${w.name}');
+  }
+
+  // history.oid 缺失时从 uri 里抠房间号
+  final WatchedLive? w2 = parseLiveHistoryItem(<String, dynamic>{
+    'title': '溜了溜了',
+    'uri': 'https://live.bilibili.com/1024',
+    'history': <String, dynamic>{'business': 'live'},
+    'author_mid': 2,
+    'author_name': '碧诗',
+  });
+  if (w2?.roomId == '1024') {
+    ok('uri 兜底取房间号', w2!.roomId);
+  } else {
+    fail('uri 兜底取房间号', '实际=${w2?.roomId}');
+  }
+
+  if (parseLiveHistoryItem(<String, dynamic>{'title': '无主播信息'}) == null) {
+    ok('缺 author_mid 返回 null', '没有 UID 就无法和关注列表比对');
+  } else {
+    fail('缺 author_mid 返回 null', '却解析出了对象');
   }
 }

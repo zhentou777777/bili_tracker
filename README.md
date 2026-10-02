@@ -2,7 +2,7 @@
 
 Flutter 实现，**客户端 Cookie 直连**架构：所有平台请求都在 App 内发起，服务端只下发规则 JSON 和转发推送，不接触 Cookie、不代理平台接口。
 
-第一阶段 MVP 已跑通 B 站闭环：**登录 → 抓取关注 → 动态日历 → 本地通知**。
+第一阶段 MVP 已跑通 B 站闭环：**登录 → 自动追更（最近观看直播 ∩ 已关注）→ 动态日历 → 本地通知**。
 
 ---
 
@@ -62,24 +62,25 @@ lib/
 │   ├── http.dart        HTTP 抽象 + ApiException（风控码识别）
 │   └── dio_sender.dart  Dio 实现 + Cookie Jar 自动维护设备指纹
 ├── platform/
-│   ├── models.dart      跨平台领域模型
-│   └── bilibili.dart    B 站适配器（关注/动态/投稿/直播/用户信息）
+│   ├── models.dart      跨平台领域模型（含 WatchedLive：最近观看的直播记录）
+│   └── bilibili.dart    B 站适配器（关注/动态/投稿/直播/用户信息/观看历史）
 ├── data/db.dart         SQLite 数据层（手写 SQL，无代码生成）
 ├── service/
 │   ├── auth_service.dart   Cookie 安全存储（Keystore/Keychain）与失效检测
-│   ├── sync_service.dart   抓取调度：频率策略、抖动、风控退避、通知分级
+│   ├── sync_service.dart   抓取调度：频率策略、抖动、风控退避、通知分级、自动追更
 │   ├── notify_service.dart 本地通知（开播/动态/汇总三档）
 │   ├── bg_service.dart     WorkManager 后台任务
-│   ├── rules_service.dart  本地内置 + 远端覆盖的规则加载
+│   ├── rules_service.dart  规则加载（缓存与内置取版本更高者）+ 远端覆盖
 │   └── app_context.dart    依赖装配
 └── ui/                  深色高密度 UI（今日/日历/UP主/考古/设置）
 
 assets/rules/platforms.json   平台接口规则表
 tools/probe.dart              CLI 探针（真实接口验证）
+test/dynamic_parser_test.dart 动态/观看历史解析单元测试（离线样本，17 项）
 server/worker.js              Cloudflare Worker 推送中继（第二阶段）
 ```
 
-## 4. 与需求文档的三处重要差异
+## 4. 与需求文档的重要差异
 
 这几点是实测后必须调整的，不是我自作主张：
 
@@ -87,7 +88,11 @@ server/worker.js              Cloudflare Worker 推送中继（第二阶段）
 
 **② 直播状态接口是公开的，不需要 Cookie。** 实测 `get_status_info_by_uids` 无 Cookie 直接返回 `code:0`。这意味着开播检测最稳的一环完全不依赖登录态，后台轮询甚至服务端兜底都能用。
 
-**③ 只带 SESSDATA 不够，会被判 -352 风控。** 必须连 `buvid3`/`b_nut` 等设备指纹一起带。登录时会一并保存（`auth_service.dart` 的 `kExtendedCookieWhitelist`），另外 `DioHttpSender.ensureDeviceCookies()` 会在启动时向首页要一次指纹兜底。
+**③ 只带 SESSDATA 不够，会被判 -352 风控。** 必须连 `buvid3`/`b_nut` 等设备指纹一起带。登录时会一并保存（`auth_service.dart` 的 `kExtendedCookieWhitelist`），另外 `DioHttpSender.ensureDeviceCookies()` 会先向首页要一次、拿不到再走 `/x/frontend/finger/spi` 兜底。
+
+**④ 空间动态接口已换地址，旧地址整条下线。** 旧 `api.vc.bilibili.com/dynamic_svr/.../space_history` 实测返回 **HTTP 404**（HTML 错误页），参数怎么调都没用；现用 `api.bilibili.com/x/polymer/web-dynamic/v1/feed/space`，数据结构完全不同（`modules.module_author` / `major.type` / 顶层 `orig`），因此解析器是重写的。该接口**必须有 buvid3**，否则回 HTTP 412。
+
+**⑤ 「最近观看的直播」不能用关注列表代替。** 关注列表接口拿不到「看过谁」的信号。正确来源是观看历史 `x/web-interface/history/cursor?type=live`（需登录），每条的 `author_mid` 就是主播 UID —— 这是「自动追更最近观看直播的已关注主播」的数据源。
 
 ## 5. 核心逻辑验证结果
 
@@ -99,26 +104,30 @@ dart tools/probe.dart
 BILI_COOKIE='SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx' dart tools/probe.dart
 ```
 
-当前实测输出（23 项全通过）：
+当前实测输出（30 项全通过）：
 
 ```
 [1] MD5 实现自检                 5/5 通过（RFC 1321 向量 + 中文）
 [2] 表单编码对齐 Python quote_plus  4/4 通过
-[3] 规则文件加载                 version=3，6 个端点
+[3] 规则文件加载                 version=4，7 个端点（含动态端点存活断言）
 [4] WBI 密钥获取                 mixin_key=ea1db124af3c7062474693fa704f4ff8
 [5] WBI 签名串                   ✅ 跨语言一致性：Dart 与 Python 算出同一个 w_rid
 [6] 直播状态接口（公开）          解析出 2 条，uid=672328094 嘉然今天吃什么 room=22637261
-[7] Cookie 失效检测              正确识别 -101 未登录
-[8] 动态解析（离线样本）          6 种动态类型全部解析正确
+[7] Cookie 失效检测              正确识别 -101 未登录；动态端点存活探测（404 直接判失败）
+[8] 新版动态解析（离线样本）      9 项：视频/图文/纯文字/转发/专栏/直播/通用卡片 + 转发折入原动态 + 缺 id 防脏数据
+[9] 最近观看直播解析（离线样本）  3 项：完整字段 / uri 兜底取房间号 / 缺 author_mid 丢弃
 ```
 
 第 5 项是关键：探针会调 Python 独立实现一遍签名再比对 `w_rid`，确认不是自说自话、也不会因为 URL 编码大小写差异踩坑。
+
+第 8、9 项的样本字段全部取自真实接口响应（2026-10 实测），做成离线样本是为了不依赖登录态、不受风控抖动影响，可以每次都跑。
 
 ## 6. 规则文件
 
 `assets/rules/platforms.json` 定义了所有端点地址、参数模板、解析路径。B 站改接口时改这个文件即可，**不用发版**：
 
-- App 启动时先读缓存 → 再读内置 → 后台拉远端
+- App 启动时先读缓存、再读内置，**两者取版本号更高的那个**（否则旧缓存会一直压住内置新规则，
+  接口修好了也生效不了）→ 后台再拉远端
 - 在「设置 → 抓取规则」填入远端 JSON 地址（GitHub Raw / R2 / 对象存储都行）后自动生效
 - `{uid}` `{page}` `{offset}` `{self_uid}` 是占位符，运行时替换
 
@@ -147,6 +156,10 @@ Worker 提供三个能力：`GET /rules` 下发规则、`POST /push` 转发 FCM/
 - **风控概率**：数据中心 IP 或高频请求会触发 -352 / HTTP 412。已做抖动间隔与自动降速，但遇到验证码只能重新登录。
 - **iOS 未实测**：代码按双端写，但第一阶段只在 Android 上规划验证。iOS 通知需要付费开发者账号。
 - **安装包未签名**：没有签名密钥和 iOS 证书，需你本地构建。
+- **自动追更依赖登录态与观看历史**：观看历史接口必须登录；接口被限流或 Cookie 失效时，
+  该轮自动追更只跳过、不影响正常抓取（详情见 `动态修复与自动追更策略说明.md`）。
+- **平台接口会整条下线**：本次已遇到一次（动态接口 404）。规则文件外置就是为了少发版，
+  但**改完必须把 `version` 加 1**，否则旧缓存会压住新规则、修复静默失效。
 
 ## 9. 免责声明
 

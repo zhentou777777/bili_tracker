@@ -25,6 +25,7 @@ class _UpsPageState extends State<UpsPage> {
   List<UpCreator> _ups = <UpCreator>[];
   String _filterGroup = '';
   bool _loading = false;
+  bool _autoTracking = false;
   final TextEditingController _addCtrl = TextEditingController();
 
   @override
@@ -68,6 +69,92 @@ class _UpsPageState extends State<UpsPage> {
     );
   }
 
+  /// 手动触发一次「自动追更最近观看直播的已关注主播」。
+  ///
+  /// 这是本次策略调整的主入口：不再让你从上几百人的关注列表里逐个勾，
+  /// 而是拿「最近看过直播」和「已关注」求交集，自动得出该追更的名单。
+  Future<void> _autoTrack() async {
+    if (_autoTracking) return;
+    setState(() => _autoTracking = true);
+
+    final AutoTrackReport r =
+        await SyncService(appContext).autoTrackWatchedFollowedLive(force: true);
+    if (!mounted) return;
+    setState(() => _autoTracking = false);
+
+    if (r.cookieInvalid) {
+      _toast('登录已失效，请先登录 B 站账号');
+      return;
+    }
+    await _load();
+    _toast(r.summary);
+    if (r.addedUps.isNotEmpty) await _showAdded(r.addedUps);
+  }
+
+  /// 列出本次自动加入的 UP 主，方便用户确认收了谁。
+  Future<void> _showAdded(List<UpCreator> added) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: TrackerTheme.surface,
+      isScrollControlled: true,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                '已自动加入追更（${added.length} 位）',
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                '来自「最近观看的直播」∩「你的关注列表」',
+                style: TextStyle(
+                    fontSize: 11, color: TrackerTheme.textSecondary),
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: added.length,
+                  itemBuilder: (BuildContext c, int i) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: TrackerTheme.surfaceAlt,
+                      backgroundImage: added[i].face.isEmpty
+                          ? null
+                          : NetworkImage(added[i].face),
+                      child: added[i].face.isEmpty
+                          ? const Icon(Icons.person,
+                              size: 14, color: TrackerTheme.textSecondary)
+                          : null,
+                    ),
+                    title: Text(
+                      added[i].name.isEmpty ? added[i].uid : added[i].name,
+                      style: const TextStyle(fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      added[i].uid,
+                      style: const TextStyle(
+                          fontSize: 11, color: TrackerTheme.textSecondary),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _addUp() async {
     final String input = _addCtrl.text.trim();
     if (input.isEmpty) return;
@@ -95,6 +182,17 @@ class _UpsPageState extends State<UpsPage> {
         title: Text('UP 主 ${_ups.isEmpty ? '' : '· ${_ups.length}'}'),
         actions: <Widget>[
           IconButton(
+            icon: _autoTracking
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome),
+            tooltip: '自动追更：最近看过直播的已关注主播',
+            onPressed: _autoTracking ? null : _autoTrack,
+          ),
+          IconButton(
             icon: _loading
                 ? const SizedBox(
                     width: 18,
@@ -114,14 +212,33 @@ class _UpsPageState extends State<UpsPage> {
           const Divider(height: 1),
           Expanded(
             child: _ups.isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        '还没有追更对象。\n点右上角「选择追更」，从你的 B 站关注列表里勾选；'
-                        '也可以在上面输入 UID 手动添加。',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: TrackerTheme.textSecondary),
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const Text(
+                            '还没有追更对象。\n\n'
+                            '点右上角 ✨ 自动追更：把你「最近看过直播」且「已关注」的主播'
+                            '一次性加进来；\n'
+                            '也可以点 ▤ 从完整关注列表里手动勾选，'
+                            '或在上面输入 UID 直接添加。',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: TrackerTheme.textSecondary, height: 1.5),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: TrackerTheme.brand,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: _autoTracking ? null : _autoTrack,
+                            icon: const Icon(Icons.auto_awesome, size: 18),
+                            label: const Text('自动追更最近看直播的主播'),
+                          ),
+                        ],
                       ),
                     ),
                   )

@@ -4,6 +4,8 @@
 /// 而是自动维护 buvid3 / b_nut 这类设备指纹 —— 缺了它们，接口会回 -352 风控。
 library dio_sender;
 
+import 'dart:convert';
+
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 
@@ -25,16 +27,17 @@ class DioHttpSender implements HttpSender {
   final PersistCookieJar _jar;
   final UserCookieSource _userCookies;
 
-  /// 首次访问时向 B 站首页要一次设备指纹。
+  /// 确保 jar 里有设备指纹 buvid3。
   ///
-  /// 用户 Cookie 里通常已带 buvid3，这里只是兜底。
+  /// 这不是「优化」而是硬依赖：新版空间动态接口
+  /// （`x/polymer/web-dynamic/v1/feed/space`）实测在缺 buvid3 时直接回
+  /// HTTP 412（风控页，响应体是 HTML 而不是 JSON）。
+  ///
+  /// 两条路：① 请求首页拿 Set-Cookie；② 拿不到就退回
+  /// `/x/frontend/finger/spi` 把 b_3/b_4 手动写进 jar。
   Future<void> ensureDeviceCookies({String url = 'https://www.bilibili.com/'}) async {
     try {
-      final List<Cookie> existing =
-          await _jar.loadForRequest(Uri.parse('https://www.bilibili.com/'));
-      final bool hasBuvid =
-          existing.any((Cookie c) => c.name.toLowerCase() == 'buvid3');
-      if (hasBuvid) return;
+      if (await _hasBuvid3()) return;
 
       await _dio.get<dynamic>(
         url,
@@ -48,9 +51,53 @@ class DioHttpSender implements HttpSender {
         ),
       );
       // Set-Cookie 已由 dio_cookie_manager 写入 jar
+      if (await _hasBuvid3()) return;
+    } catch (_) {
+      // 首页失败不阻断，继续走 spi 兜底
+    }
+
+    try {
+      if (await _hasBuvid3()) return;
+      final Response<dynamic> resp = await _dio.get<dynamic>(
+        'https://api.bilibili.com/x/frontend/finger/spi',
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: <String, String>{
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.bilibili.com/',
+          },
+        ),
+      );
+      final Object? decoded = jsonDecode(resp.data?.toString() ?? '');
+      if (decoded is Map && decoded['data'] is Map) {
+        final Map<String, dynamic> d =
+            Map<String, dynamic>.from(decoded['data'] as Map);
+        final List<Cookie> cookies = <Cookie>[
+          if ((d['b_3'] ?? '').toString().isNotEmpty)
+            Cookie('buvid3', d['b_3'].toString())..domain = '.bilibili.com',
+          if ((d['b_4'] ?? '').toString().isNotEmpty)
+            Cookie('buvid4', d['b_4'].toString())..domain = '.bilibili.com',
+        ];
+        if (cookies.isNotEmpty) {
+          await _jar.saveFromResponse(
+            Uri.parse('https://www.bilibili.com/'),
+            cookies,
+          );
+        }
+      }
     } catch (_) {
       // 指纹拿不到不阻断主流程，只是风控概率上升
     }
+  }
+
+  Future<bool> _hasBuvid3() async {
+    final List<Cookie> existing =
+        await _jar.loadForRequest(Uri.parse('https://www.bilibili.com/'));
+    return existing.any(
+      (Cookie c) => c.name.toLowerCase() == 'buvid3' && c.value.isNotEmpty,
+    );
   }
 
   @override

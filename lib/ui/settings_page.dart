@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../service/bg_service.dart';
+import '../service/sync_service.dart';
 import 'app.dart';
 import 'login_page.dart';
 
@@ -16,6 +17,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _loggedIn = false;
   String? _selfUid;
+  bool _autoTrack = true;
+  DateTime? _autoTrackAt;
   final TextEditingController _ruleCtrl = TextEditingController();
 
   @override
@@ -34,11 +37,25 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _load() async {
     final bool ok = await appContext.auth.isLoggedIn('bilibili');
     final String? uid = await appContext.auth.selfUid('bilibili');
+    final SyncService sync = SyncService(appContext);
+    final bool autoTrack = await sync.isAutoTrackEnabled();
+    final DateTime? autoTrackAt = await sync.lastAutoTrackAt();
     if (!mounted) return;
     setState(() {
       _loggedIn = ok;
       _selfUid = uid;
+      _autoTrack = autoTrack;
+      _autoTrackAt = autoTrackAt;
     });
+  }
+
+  /// 立即跑一次自动追更（用真实 Cookie 拉观看历史与关注列表）。
+  Future<void> _runAutoTrackNow() async {
+    final AutoTrackReport r =
+        await SyncService(appContext).autoTrackWatchedFollowedLive(force: true);
+    if (!mounted) return;
+    await _load();
+    _toast(r.summary);
   }
 
   @override
@@ -98,6 +115,40 @@ class _SettingsPageState extends State<SettingsPage> {
             title: const Text('发送一条测试通知'),
             onTap: () =>
                 appContext.notify.notifySummary(upCount: 1, itemCount: 1),
+          ),
+          _section('追更策略'),
+          SwitchListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            secondary: const Icon(Icons.auto_awesome, size: 20),
+            title: const Text('自动追更最近观看直播的已关注主播',
+                style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              '取「最近观看的直播」与「你的关注列表」的交集，自动加进追更名单。'
+              '刷新时最多 6 小时跑一次，不额外增加请求负担。',
+              style: const TextStyle(fontSize: 11),
+            ),
+            value: _autoTrack,
+            onChanged: (bool v) async {
+              await SyncService(appContext).setAutoTrackEnabled(v);
+              if (!mounted) return;
+              setState(() => _autoTrack = v);
+              _toast(v ? '已开启自动追更' : '已关闭自动追更');
+            },
+          ),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.play_circle_outline, size: 20),
+            title: const Text('立即执行一次自动追更', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              _autoTrackAt == null
+                  ? '还没有执行过'
+                  : '上次执行：${_autoTrackAt!.year}/${_autoTrackAt!.month}/${_autoTrackAt!.day} '
+                      '${_autoTrackAt!.hour.toString().padLeft(2, '0')}:'
+                      '${_autoTrackAt!.minute.toString().padLeft(2, '0')}',
+              style: const TextStyle(fontSize: 11),
+            ),
+            onTap: _runAutoTrackNow,
           ),
           _section('抓取规则'),
           ListTile(

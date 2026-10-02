@@ -39,29 +39,42 @@ class RulesService {
     await _prefs.setString(_prefRemoteUrl, url.trim());
   }
 
-  /// 启动加载：先读缓存（保证秒开），再尝试远端更新。
+  /// 启动加载：先读缓存与内置，取**版本更高**的那个，再尝试远端更新。
+  ///
+  /// 为什么不是「有缓存就直接用缓存」：那份缓存是用户在某个旧版本上留下的。
+  /// 一旦接口下线（例如动态接口从 `dynamic_svr/space_history` 换成
+  /// `polymer/web-dynamic/v1/feed/space`），旧缓存里的死端点会一直被沿用，
+  /// 内置的新规则永远生效不了 —— 表现就是「升级了 App 还是抓不到动态」。
   Future<RuleSet> load() async {
     // 1. 远端缓存
+    RuleSet? cachedSet;
     final String? cached = _prefs.getString(_prefCached);
     if (cached != null && cached.isNotEmpty) {
       try {
-        _current = RuleSet.fromJsonString(cached, source: 'cache');
+        cachedSet = RuleSet.fromJsonString(cached, source: 'cache');
       } catch (_) {
-        _current = null;
+        cachedSet = null;
       }
     }
 
-    // 2. 本地内置（首次启动或缓存损坏）
-    if (_current == null) {
-      try {
-        final String bundled = await rootBundle.loadString(_bundledPath);
-        _current = RuleSet.fromJsonString(bundled, source: 'bundled');
-      } catch (_) {
-        _current = null;
-      }
+    // 2. 本地内置
+    RuleSet? bundledSet;
+    try {
+      final String bundled = await rootBundle.loadString(_bundledPath);
+      bundledSet = RuleSet.fromJsonString(bundled, source: 'bundled');
+    } catch (_) {
+      bundledSet = null;
     }
 
-    // 3. 后台尝试远端更新（失败静默，不影响启动）
+    // 3. 版本更高的胜出（内置更新时必须压过旧缓存）
+    if (bundledSet != null &&
+        (cachedSet == null || bundledSet.version > cachedSet.version)) {
+      _current = bundledSet;
+    } else {
+      _current = cachedSet ?? bundledSet;
+    }
+
+    // 4. 后台尝试远端更新（失败静默，不影响启动）
     await refreshFromRemote();
     return current;
   }

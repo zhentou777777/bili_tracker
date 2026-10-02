@@ -11,10 +11,14 @@ import 'login_page.dart';
 /// 策略调整（2026-10-02）：
 /// 旧做法是「点一下就自动把全部关注导入」，但关注列表动辄几百位，
 /// 导入后每一轮抓取都要对几百个 UP 串行请求（几十分钟，且极易触发风控），
-/// 实际跑不通。现改为：**一次性拉全量列表 → 用户自己勾选 → 只导入选中的几位**。
+/// 实际跑不通。现改为：**一次性拉全量列表 → 由用户勾选，或交给「自动追更」**。
 ///
-/// 输入：登录态（Cookie，用于读关注列表）+ 用户的勾选。
-/// 输出：被勾选的 UP 主写入本地库（成为追更对象），其余只是展示，不落库。
+/// 自动追更（本页右上角 ✨）：取「最近观看的直播」与「当前关注列表」的交集，
+/// 把「已关注、而且最近真的看过直播」的主播自动加进来。因为本页已经把关注
+/// 列表拿在手上了，这里直接复用，不会为了自动追更再拉一次全量关注。
+///
+/// 输入：登录态（Cookie，用于读关注列表与观看历史）+ 用户的勾选 / 自动策略。
+/// 输出：被勾选或被自动命中的 UP 主写入本地库（成为追更对象），其余只是展示。
 class FollowPickerPage extends StatefulWidget {
   const FollowPickerPage({super.key, this.onImported});
 
@@ -38,6 +42,7 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
   Set<String> _tracked = <String>{};
 
   bool _loading = false;
+  bool _autoTracking = false;
   int _got = 0;
   int _total = -1;
   DateTime? _cachedAt;
@@ -133,6 +138,46 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
     );
   }
 
+  /// 自动追更：最近观看直播 ∩ 当前关注列表 → 直接写入追更名单。
+  ///
+  /// 复用本页已拉到的关注列表，所以这次操作只会多打「观看历史」这一个接口。
+  Future<void> _autoTrack() async {
+    if (_autoTracking) return;
+    if (_all.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('先拉到关注列表，再用自动追更')),
+      );
+      return;
+    }
+    setState(() => _autoTracking = true);
+
+    final FollowListResult source = FollowListResult()
+      ..ups.addAll(_all)
+      ..total = _total;
+
+    final AutoTrackReport r = await SyncService(appContext)
+        .autoTrackWatchedFollowedLive(force: true, followings: source);
+    if (!mounted) return;
+
+    final Set<String> tracked = await SyncService(appContext).trackedKeys();
+    if (!mounted) return;
+    setState(() {
+      _autoTracking = false;
+      _tracked = tracked;
+      // 刚被自动加入的，从待选里剔除（它们已是「已追更」状态）
+      _selected.removeWhere(
+        (String uid) => r.addedUps.any((UpCreator up) => up.uid == uid),
+      );
+    });
+
+    if (r.cookieInvalid) {
+      _promptLogin();
+      return;
+    }
+    widget.onImported?.call();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.summary)));
+  }
+
   /// 按关键词过滤（名字 / UID，纯本地，不再请求接口）。
   List<UpCreator> get _visible {
     final String kw = _keyword.trim().toLowerCase();
@@ -183,6 +228,17 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
       appBar: AppBar(
         title: Text('选择追更 · ${_all.length} 位关注'),
         actions: <Widget>[
+          IconButton(
+            icon: _autoTracking
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome),
+            tooltip: '自动追更：最近看过直播的已关注主播',
+            onPressed: _autoTracking ? null : _autoTrack,
+          ),
           IconButton(
             icon: _loading
                 ? const SizedBox(

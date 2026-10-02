@@ -18,6 +18,12 @@ class SyncReport {
   int newFeeds = 0;
   int newLive = 0;
 
+  /// 本轮由「自动追更最近观看直播的已关注主播」新加入追更名单的数量。
+  int autoTracked = 0;
+
+  /// 自动追更的一句话说明（含未执行原因），供界面展示。
+  String? autoTrackSummary;
+
   /// Cookie 失效，UI 应引导重新登录。
   bool cookieInvalid = false;
 
@@ -32,8 +38,42 @@ class SyncReport {
 
   @override
   String toString() => '新动态 $newFeeds · 新开播 $newLive'
+      '${autoTracked > 0 ? ' · 自动追更 +$autoTracked' : ''}'
       '${cookieInvalid ? ' · Cookie 已失效' : ''}'
       '${riskControl ? ' · 触发风控已降速' : ''}';
+}
+
+/// 「自动追更最近观看直播的已关注主播」的一次执行结果。
+class AutoTrackReport {
+  /// 是否真的跑到了「比对 + 写入」这一步（false 时看 [reason]）。
+  bool ran = false;
+
+  /// 未执行 / 无结果时的原因说明。
+  String reason = '';
+
+  /// 最近观看的直播记录条数（去重后）。
+  int watched = 0;
+
+  /// 其中属于「已关注」的主播数（去重后，含已在追更名单里的）。
+  int matched = 0;
+
+  /// 本次新写入追更名单的数量。
+  int added = 0;
+
+  /// 本次新加入的 UP 主。
+  final List<UpCreator> addedUps = <UpCreator>[];
+
+  bool cookieInvalid = false;
+  bool riskControl = false;
+
+  final List<String> messages = <String>[];
+
+  String get summary {
+    if (!ran) return reason.isEmpty ? '未执行自动追更' : reason;
+    final String head =
+        '最近观看直播 $watched 场 · 已关注 $matched 位 · 新增追更 $added 位';
+    return messages.isEmpty ? head : '$head（${messages.first}）';
+  }
 }
 
 /// 关注列表的一次**只读**抓取结果。
@@ -190,8 +230,156 @@ class SyncService {
   /// 只导入用户勾选的 UP 主（已有的个性化配置不会被覆盖）。
   Future<int> importSelected(List<UpCreator> ups) => _ctx.db.upsertUps(ups);
 
+  // ---------- 关注列表新策略：自动追更最近观看直播的已关注主播 ----------
+
+  /// 自动追更开关（默认开启）。
+  static const String _kAutoTrackKey = 'auto_track_live_v1';
+
+  /// 上次自动追更的时间戳（用于冷却，避免每次刷新都多打接口）。
+  static const String _kAutoTrackAtKey = 'auto_track_live_at';
+
+  Future<bool> isAutoTrackEnabled() async =>
+      (await _ctx.db.getSetting(_kAutoTrackKey)) != '0';
+
+  Future<void> setAutoTrackEnabled(bool enabled) async =>
+      _ctx.db.setSetting(_kAutoTrackKey, enabled ? '1' : '0');
+
+  Future<DateTime?> lastAutoTrackAt() async {
+    final String? raw = await _ctx.db.getSetting(_kAutoTrackAtKey);
+    final int? ms = raw == null ? null : int.tryParse(raw);
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  /// **新策略**：自动追更「最近看过直播、且本来就在你关注列表里」的主播。
+  ///
+  /// 为什么不再用「整个关注列表」当追更名单：
+  /// 关注几百位时全量追更会让每一轮抓取变成几百次串行请求（几十分钟 + 极易
+  /// 触发风控，-352）。而「最近真的点进过这个直播间」是个很强的兴趣信号：
+  /// 它随着实际观看行为自动更新，规模天然收敛在几十位以内。
+  ///
+  /// 过滤链路：
+  /// ```
+  /// 最近观看的直播记录 → 取主播 UID → 与关注列表求交集
+  ///   → 剔除已在追更名单里的 → 写入追更名单
+  /// ```
+  /// 也就是「已关注」与「最近看过」两个条件同时满足才会被自动加入，
+  /// 不会把只看过一眼的陌生主播塞进来。
+  ///
+  /// - [force] 忽略开关与冷却时间（用户手动点按钮时用）。
+  /// - [followings] 调用方已持有的关注列表（如「选择追更」页），避免重复拉取。
+  /// - [livePages] 观看历史翻几页（每页 30 条）。
+  /// - [minInterval] 冷却时间，默认 6 小时。
+  Future<AutoTrackReport> autoTrackWatchedFollowedLive({
+    bool force = false,
+    FollowListResult? followings,
+    int livePages = 3,
+    Duration minInterval = const Duration(hours: 6),
+  }) async {
+    final AutoTrackReport report = AutoTrackReport();
+
+    if (!force) {
+      if (!await isAutoTrackEnabled()) {
+        report.reason = '自动追更已在「设置」里关闭';
+        return report;
+      }
+      final DateTime? last = await lastAutoTrackAt();
+      if (last != null && DateTime.now().difference(last) < minInterval) {
+        report.reason = '距上次自动追更未满 ${minInterval.inHours} 小时，稍后自动重试';
+        return report;
+      }
+    }
+
+    final BilibiliAdapter? adapter = _ctx.bilibiliAdapter();
+    if (adapter == null) {
+      report.reason = '未找到 B 站规则，请更新规则文件';
+      return report;
+    }
+    if (await _ctx.auth.isMarkedInvalid('bilibili')) {
+      report.cookieInvalid = true;
+      report.reason = '登录已失效，读不到最近观看的直播';
+      return report;
+    }
+
+    // 1) 关注列表：优先用调用方给的 → 本地缓存 → 实时拉取
+    FollowListResult? follow = followings;
+    if (follow == null || follow.ups.isEmpty) {
+      follow = await loadCachedFollowings();
+    }
+    if (follow == null || follow.ups.isEmpty) {
+      follow = await fetchFollowings();
+      if (follow.ups.isNotEmpty) await cacheFollowings(follow);
+    }
+    if (follow.ups.isEmpty) {
+      report.cookieInvalid = follow.cookieInvalid;
+      report.riskControl = follow.riskControl;
+      report.reason = follow.messages.isNotEmpty
+          ? follow.messages.first
+          : '关注列表为空，无法判断哪些主播已经关注';
+      return report;
+    }
+
+    // 2) 最近观看的直播
+    List<WatchedLive> watched;
+    try {
+      watched = await adapter.fetchWatchedLives(maxPages: livePages);
+    } on ApiException catch (e) {
+      final ({String message, bool cookieInvalid, bool riskControl}) c =
+          _classifyApiError(e);
+      report.cookieInvalid = c.cookieInvalid;
+      report.riskControl = c.riskControl;
+      if (c.cookieInvalid) _ctx.auth.markInvalid('bilibili');
+      report.reason = c.message;
+      return report;
+    } catch (e) {
+      report.reason = '读取最近观看的直播失败：$e';
+      return report;
+    }
+
+    report.ran = true;
+    report.watched = watched.length;
+
+    // 3) 求交集并落库
+    final Map<String, UpCreator> followed = <String, UpCreator>{
+      for (final UpCreator up in follow.ups) up.uid: up,
+    };
+    final Set<String> tracked = await trackedKeys();
+    final Set<String> matchedUids = <String>{};
+    final List<UpCreator> toAdd = <UpCreator>[];
+    for (final WatchedLive w in watched) {
+      final UpCreator? up = followed[w.uid];
+      if (up == null) continue;
+      if (!matchedUids.add(w.uid)) continue;
+      if (tracked.contains(up.key)) continue;
+      toAdd.add(up);
+    }
+    report.matched = matchedUids.length;
+
+    if (toAdd.isNotEmpty) {
+      report.added = await importSelected(toAdd);
+      report.addedUps.addAll(toAdd);
+    } else if (report.matched > 0) {
+      report.messages.add('已关注且在看的 ${report.matched} 位都已在追更名单里');
+    } else {
+      report.messages.add('最近观看的直播里没有已关注的主播');
+    }
+
+    // 无论有没有新增都记一笔时间，避免每轮刷新都重复打接口
+    await _ctx.db.setSetting(
+      _kAutoTrackAtKey,
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    return report;
+  }
+
   /// 按频率策略抓取所有 UP 主的动态与投稿。
-  Future<SyncReport> syncAll({bool foreground = true}) async {
+  ///
+  /// [autoTrack] 为 true 且是前台触发时，会先尝试「自动追更最近观看直播的
+  /// 已关注主播」（受开关与冷却时间约束，见 [autoTrackWatchedFollowedLive]），
+  /// 这样新补进来的 UP 本轮就能被一起抓到。
+  Future<SyncReport> syncAll({
+    bool foreground = true,
+    bool autoTrack = true,
+  }) async {
     final SyncReport report = SyncReport();
     final BilibiliAdapter? adapter = _ctx.bilibiliAdapter();
     if (adapter == null) {
@@ -202,6 +390,14 @@ class SyncService {
     if (await _ctx.auth.isMarkedInvalid('bilibili')) {
       report.cookieInvalid = true;
       return report;
+    }
+
+    if (autoTrack && foreground) {
+      final AutoTrackReport at = await autoTrackWatchedFollowedLive();
+      report.autoTrackSummary = at.summary;
+      report.autoTracked = at.added;
+      if (at.cookieInvalid) report.cookieInvalid = true;
+      if (report.cookieInvalid) return report;
     }
 
     final List<UpCreator> ups = await _ctx.db.allUps();

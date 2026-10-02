@@ -67,47 +67,64 @@ class _TodayPageState extends State<TodayPage> {
     setState(() => _loading = true);
 
     final SyncService sync = SyncService(appContext);
-    final bool firstRun = await appContext.db.upCount() == 0;
+
+    // syncAll 内部会先尝试一次「自动追更最近观看直播的已关注主播」
+    // （受设置开关与 6 小时冷却约束），因此首次刷新也有机会直接拿到追更名单，
+    // 不再需要「先去 UP 主页手动勾选」这一步。
+    final SyncReport feeds = await sync.syncAll(foreground: true);
+    if (!mounted) return;
+    final SyncReport lives = await sync.checkLive();
     if (!mounted) return;
 
-    if (firstRun) {
-      // 策略调整（2026-10-02）：不再「首次刷新就自动导入全部关注」。
-      // 关注列表动辄几百位，全量导入后每一轮抓取要串行请求几百次，
-      // 耗时长且极易触发风控；改为引导用户自己去勾选想追更的几位。
-      setState(() {
-        _loading = false;
-        _lastReport = '还没有追更对象，去「UP 主」页从关注列表里选择';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('还没有追更对象，先从关注列表里挑几位'),
-          action: SnackBarAction(
-            label: '去选择',
-            onPressed: () =>
-                context.findAncestorStateOfType<HomeShellState>()?.goTo(2),
-          ),
-        ),
-      );
-      return;
-    }
-
-    final feeds = await sync.syncAll(foreground: true);
-    final lives = await sync.checkLive();
-
+    final int upCount = await appContext.db.upCount();
+    await _load();
     if (!mounted) return;
+
     setState(() {
       _loading = false;
-      _lastReport = '${feeds.toString()}｜${lives.toString()}';
+      _lastReport = '${feeds.toString()}｜${lives.toString()}'
+          '${feeds.autoTrackSummary == null ? '' : '\n自动追更：${feeds.autoTrackSummary}'}';
     });
 
     if (feeds.cookieInvalid) {
       _promptRelogin();
-    } else {
-      await _load();
+      return;
     }
+    if (feeds.autoTracked > 0) {
+      _toast('自动追更：新增 ${feeds.autoTracked} 位「最近看直播」的已关注主播');
+    }
+    if (upCount == 0) _promptPickFollows();
+  }
+
+  /// 追更名单还是空的时候给一条可点的引导。
+  ///
+  /// 策略调整（2026-10-02）：不再「首次刷新就把全部关注导入」。关注列表动辄
+  /// 几百位，全量导入后每轮抓取要串行请求几百次，耗时长且极易触发风控；
+  /// 自动追更（最近观看的直播 ∩ 已关注）能在不导入全量的前提下拿到一份
+  /// 可靠的初始名单，剩下的再让用户自己补。
+  void _promptPickFollows() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('还没有追更对象：可先去「UP 主」页自动追更，或手动挑几位'),
+        action: SnackBarAction(
+          label: '去选择',
+          onPressed: () =>
+              context.findAncestorStateOfType<HomeShellState>()?.goTo(2),
+        ),
+      ),
+    );
+  }
+
+  /// 统一的提示入口（判断与使用之间不放 await，避免 context 失效）。
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _promptRelogin() {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('登录已失效，请重新登录'),

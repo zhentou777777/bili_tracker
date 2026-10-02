@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "updated_at": "2025-01-01T00:00:00Z",
+  "version": 4,
+  "updated_at": "2026-10-02T00:00:00Z",
   "notes": "接口规则表。App 内置此文件作为兜底，启动时可拉取远端同名文件覆盖，接口变动无需发版。",
   "platforms": [
     {
@@ -37,16 +37,39 @@
           "item_map": { "uid": "mid", "name": "uname", "face": "face", "sign": "sign" }
         },
         "dynamics": {
-          "url": "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history",
+          "url": "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space",
           "method": "GET",
           "referer": "https://space.bilibili.com/{uid}/dynamic",
           "require_cookie": true,
           "require_sign": false,
-          "params": { "host_uid": "{uid}", "offset_dynamic_id": "{offset}", "need_top": "0", "platform": "web" },
-          "list_path": "data.cards",
-          "next_offset_path": "data.next_offset",
+          "params": {
+            "host_mid": "{uid}",
+            "offset": "{offset}",
+            "timezone_offset": "-480",
+            "features": "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote"
+          },
+          "list_path": "data.items",
+          "next_offset_path": "data.offset",
           "has_more_path": "data.has_more",
-          "parser": "bilibili_dynamic"
+          "parser": "bilibili_dynamic",
+          "note": "2026-10 起替代已下线的 dynamic_svr/space_history（旧接口实测 HTTP 404）。首屏 offset 传空（与网页端一致）：另有一次实测 offset=0 返回空列表，但同批请求均处于 -352 限流，无法排除干扰，故不做定论，只按网页端行为传空。翻页用上一页返回的 data.offset。"
+        },
+        "live_history": {
+          "url": "https://api.bilibili.com/x/web-interface/history/cursor",
+          "method": "GET",
+          "referer": "https://www.bilibili.com/account/history/",
+          "require_cookie": true,
+          "require_sign": false,
+          "params": {
+            "ps": "30",
+            "type": "live",
+            "max": "{max}",
+            "business": "{business}",
+            "view_at": "{view_at}"
+          },
+          "list_path": "data.list",
+          "parser": "bilibili_live_history",
+          "note": "最近观看的直播记录（需登录，未登录回 -101）。max/business/view_at 是翻页游标，首页不传；ps 最大 30。用于「自动追更最近观看直播的已关注主播」。"
         },
         "videos": {
           "url": "https://api.bilibili.com/x/space/arc/search",

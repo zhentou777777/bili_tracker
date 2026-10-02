@@ -92,18 +92,30 @@ class BilibiliAdapter {
     return ps != null && ps > 0 ? ps : 50;
   }
 
-  /// 单个 UP 主的动态（space_history）。
+  /// 单个 UP 主的动态（新版 polymer 空间动态接口）。
+  ///
+  /// 历史背景：旧接口 `api.vc.bilibili.com/dynamic_svr/space_history` 已下线
+  /// （实测 HTTP 404，返回错误页而非 JSON），这是「无法获取动态」的直接原因。
+  ///
+  /// 两个必须注意的细节：
+  /// 1. **首屏 offset 传空串**（与 B 站网页端一致）。另有一次实测 `offset=0`
+  ///    返回 `code:0` 但 `items` 为空；但同一批请求都处于 -352 限流状态，
+  ///    无法把「offset 的锅」和「限流的锅」分开，所以这里不下定论，
+  ///    只保持与网页端一致的做法。
+  /// 2. 该接口**需要设备指纹 buvid3**，缺失时返回 HTTP 412（风控）。
+  ///    指纹由 `DioHttpSender.ensureDeviceCookies()` 或登录 Cookie 保证。
   Future<DynamicPage> fetchDynamics({
     required String uid,
     String? offset,
   }) async {
     final HttpResp resp = await _request(
       'dynamics',
-      <String, String>{'uid': uid, 'offset': offset ?? '0'},
+      <String, String>{'uid': uid, 'offset': offset ?? ''},
     );
     final Map<String, dynamic> json = _decodeObject(resp);
     _throwIfApiError(json);
 
+    // 空 offset 会渲染成 `offset=`，这与「不传」等价；保险起见再兜一层
     final EndpointRule ep = _requireEndpoint('dynamics');
     final Object? list = getByPath(json, ep.listPath);
     final List<FeedItem> items = <FeedItem>[];
@@ -111,18 +123,88 @@ class BilibiliAdapter {
       for (final Object? raw in list) {
         if (raw is! Map) continue;
         final FeedItem? item =
-            parseDynamicCard(Map<String, dynamic>.from(raw), fallbackUid: uid);
+            parseDynamicItem(Map<String, dynamic>.from(raw), fallbackUid: uid);
         if (item != null) items.add(item);
       }
     }
 
     final Object? next = getByPath(json, ep.nextOffsetPath);
     final Object? hasMore = getByPath(json, ep.hasMorePath);
+    final String nextOffset = next?.toString() ?? '';
     return DynamicPage(
       items: items,
-      nextOffset: next?.toString() ?? '0',
-      hasMore: hasMore is num ? hasMore != 0 : hasMore == true,
+      nextOffset: nextOffset,
+      // 没有下一页游标时也视为到底，避免调用方拿着一串空 offset 反复请求
+      hasMore: (hasMore is num ? hasMore != 0 : hasMore == true) &&
+          nextOffset.isNotEmpty,
     );
+  }
+
+  /// 最近观看的直播记录（需登录）。
+  ///
+  /// 返回按观看时间倒序的记录，只保留能拿到主播 UID 的条目 ——
+  /// 调用方拿它和关注列表求交集，实现「自动追更最近观看直播的已关注主播」。
+  ///
+  /// [maxPages] 是翻页上限（每页 30 条）。翻页靠上一页返回的
+  /// `data.cursor`；**第 2 页起任何异常都只是停止翻页**，已取到的记录照常返回
+  /// （首页失败才抛，因为那说明登录态或接口本身有问题，必须让调用方知道）。
+  Future<List<WatchedLive>> fetchWatchedLives({int maxPages = 3}) async {
+    final List<WatchedLive> out = <WatchedLive>[];
+    final Set<String> seenRoom = <String>{};
+
+    String max = '';
+    String business = '';
+    String viewAt = '';
+
+    for (int page = 0; page < maxPages; page++) {
+      Map<String, dynamic> json;
+      try {
+        final HttpResp resp = await _request('live_history', <String, String>{
+          'max': max,
+          'business': business,
+          'view_at': viewAt,
+        });
+        json = _decodeObject(resp);
+        _throwIfApiError(json);
+      } catch (_) {
+        // 首页失败必须让调用方知道（可能是 Cookie 失效）；
+        // 后续页失败就停在上一页，别把已经拿到的数据一起丢掉。
+        if (page == 0) rethrow;
+        break;
+      }
+
+      final Object? list = getByPath(json, 'data.list');
+      if (list is! List || list.isEmpty) break;
+
+      int added = 0;
+      for (final Object? raw in list) {
+        if (raw is! Map) continue;
+        final WatchedLive? w =
+            parseLiveHistoryItem(Map<String, dynamic>.from(raw));
+        if (w == null) continue;
+        // 同一间直播间只保留最近一次观看
+        final String dedupeKey = w.roomId.isNotEmpty ? w.roomId : w.uid;
+        if (!seenRoom.add(dedupeKey)) continue;
+        out.add(w);
+        added++;
+      }
+
+      // 游标：拿不到就不再往下翻
+      final Object? cursor = getByPath(json, 'data.cursor');
+      if (cursor is! Map || added == 0) break;
+      final Map<String, dynamic> c = Map<String, dynamic>.from(cursor);
+      final String nextMax = (c['max'] ?? '').toString();
+      final String nextViewAt = (c['view_at'] ?? '').toString();
+      final String nextBusiness = (c['business'] ?? '').toString();
+      if (nextMax.isEmpty || nextViewAt.isEmpty || nextViewAt == viewAt) break;
+      max = nextMax;
+      business = nextBusiness;
+      viewAt = nextViewAt;
+
+      // 翻页之间留出间隔，避免连续请求被风控
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+    }
+    return out;
   }
 
   /// 单个 UP 主的视频投稿（需 WBI 签名）。
@@ -367,104 +449,68 @@ class FollowPage {
   final bool hasMore;
 }
 
-/// 解析 space_history 的单条 card。
+/// 解析新版空间动态接口（`x/polymer/web-dynamic/v1/feed/space`）的单条 item。
 ///
-/// 结构嵌套且 `card` 字段是 JSON 字符串，各 type 字段位置不一致，
-/// 这里逐个分支处理；取不到就降级为摘要，绝不因为单条异常拖垮整页。
-FeedItem? parseDynamicCard(
-  Map<String, dynamic> card, {
+/// 结构：`{ id_str, type, modules: { module_author, module_dynamic, module_stat }, orig }`，
+/// 其中 `module_dynamic.major` 按 `major.type` 分派，各分支字段位置互不相同。
+/// 单条解析失败绝不允许拖垮整页，因此全部走「取不到就降级」。
+///
+/// 对应关系：
+/// - `module_author.pub_ts` → 发布时间（秒）
+/// - `module_dynamic.desc.text` → 动态正文（图片/文字动态的正文就在这里）
+/// - `major.archive` / `major.opus` / `major.draw` / `major.article` / `major.live_rcmd` …→ 主内容
+/// - `orig` → 转发链的原动态（结构与 item 同构）
+FeedItem? parseDynamicItem(
+  Map<String, dynamic> item, {
   String fallbackUid = '',
 }) {
-  final Object? descRaw = card['desc'];
-  if (descRaw is! Map) return null;
-  final Map<String, dynamic> desc = Map<String, dynamic>.from(descRaw);
-
-  final String dynamicId = (desc['dynamic_id'] ?? desc['rid'] ?? '').toString();
+  final String dynamicId = (item['id_str'] ?? '').toString();
   if (dynamicId.isEmpty) return null;
 
-  final int type = desc['type'] is num ? (desc['type'] as num).toInt() : 0;
-  final int ts = desc['timestamp'] is num ? (desc['timestamp'] as num).toInt() : 0;
+  final Map<String, dynamic> modules = _asMap(item['modules']);
+  final Map<String, dynamic> author = _asMap(modules['module_author']);
+  final String itemType = (item['type'] ?? '').toString();
 
-  String uid = fallbackUid;
-  String uname = '';
-  String face = '';
-  final Object? profile = desc['user_profile'];
-  if (profile is Map) {
-    final Object? info = profile['info'];
-    if (info is Map) {
-      uid = (info['uid'] ?? uid).toString();
-      uname = (info['uname'] ?? '').toString();
-      face = (info['face'] ?? '').toString();
+  final String uid = (author['mid'] ?? fallbackUid).toString();
+  final String uname = (author['name'] ?? '').toString();
+  final String face = (author['face'] ?? '').toString();
+  final int ts = author['pub_ts'] is num ? (author['pub_ts'] as num).toInt() : 0;
+
+  final _DynamicBody body = _readDynamicBody(itemType, modules);
+
+  String title = body.title;
+  String summary = body.summary;
+  String cover = body.cover;
+  String url = body.url;
+  FeedKind kind = body.kind;
+  final Map<String, dynamic> extra = <String, dynamic>{...body.extra};
+
+  // 转发：把原动态正文折进摘要，否则界面上只剩一句「分享动态」看不出内容
+  if (itemType == 'DYNAMIC_TYPE_FORWARD') {
+    kind = FeedKind.repost;
+    final Map<String, dynamic> orig = _asMap(item['orig']);
+    final Map<String, dynamic> origModules = _asMap(orig['modules']);
+    final _DynamicBody og = _readDynamicBody(
+      (orig['type'] ?? '').toString(),
+      origModules,
+    );
+    final String origText = og.title.isNotEmpty ? og.title : og.summary;
+    if (origText.isNotEmpty) {
+      final String origName =
+          (_asMap(origModules['module_author'])['name'] ?? '').toString();
+      final String quoted = origName.isEmpty ? origText : '@$origName：$origText';
+      summary = summary.isEmpty ? '转发 $quoted' : '$summary｜转发 $quoted';
     }
+    if (cover.isEmpty) cover = og.cover;
+    if (url.isEmpty) url = og.url;
+    if (og.kind != FeedKind.unknown) extra['origin_kind'] = og.kind.name;
   }
 
-  final Map<String, dynamic> cardObj = _asMap(card['card']);
-  final Map<String, dynamic> item = _asMap(cardObj['item']).isNotEmpty
-      ? _asMap(cardObj['item'])
-      : cardObj;
-
-  String title = '';
-  String summary = '';
-  String cover = '';
-  String url = '';
-  FeedKind kind = FeedKind.unknown;
-
-  switch (type) {
-    case 8: // 投稿视频
-      kind = FeedKind.video;
-      title = (item['title'] ?? '').toString();
-      summary = (item['desc'] ?? item['description'] ?? item['dynamic'] ?? '')
-          .toString();
-      cover = (item['pic'] ?? '').toString();
-      final String bvid = (desc['bvid'] ?? item['bvid'] ?? '').toString();
-      if (bvid.isNotEmpty) url = 'https://www.bilibili.com/video/$bvid';
-      break;
-    case 2: // 图文
-      kind = FeedKind.image;
-      summary = (item['description'] ?? item['content'] ?? '').toString();
-      final Object? pics = item['pictures'];
-      if (pics is List && pics.isNotEmpty && pics.first is Map) {
-        cover = (pics.first['img_src'] ?? '').toString();
-      }
-      break;
-    case 4: // 纯文字
-      kind = FeedKind.text;
-      summary = (item['content'] ?? item['description'] ?? '').toString();
-      break;
-    case 1: // 转发
-      kind = FeedKind.repost;
-      summary = (item['content'] ?? '').toString();
-      break;
-    case 64: // 专栏
-      kind = FeedKind.article;
-      title = (cardObj['title'] ?? item['title'] ?? '').toString();
-      summary = (cardObj['summary'] ?? cardObj['desc'] ?? '').toString();
-      cover = (cardObj['banner_url'] ?? cardObj['image_urls']?.first ?? '')
-          .toString();
-      final String cvid = (desc['rid'] ?? cardObj['id'] ?? '').toString();
-      if (cvid.isNotEmpty) url = 'https://www.bilibili.com/read/cv$cvid';
-      break;
-    case 2048: // 直播
-      kind = FeedKind.live;
-      final Map<String, dynamic> live = _asMap(cardObj['live_play_info']).isNotEmpty
-          ? _asMap(cardObj['live_play_info'])
-          : cardObj;
-      title = (live['title'] ?? live['room_title'] ?? '').toString();
-      summary = (live['area_name'] ?? '').toString();
-      cover = (live['cover'] ?? live['user_cover'] ?? '').toString();
-      final String roomId = (live['room_id'] ?? desc['rid'] ?? '').toString();
-      if (roomId.isNotEmpty) url = 'https://live.bilibili.com/$roomId';
-      break;
-    default:
-      kind = FeedKind.unknown;
-      summary = (item['content'] ?? item['description'] ?? item['dynamic'] ?? '')
-          .toString();
+  // 兜底：正文与标题都为空时给一个可辨识的占位，避免日历里出现空白条目
+  if (title.isEmpty && summary.isEmpty) {
+    summary = '（${feedKindLabel(kind)}动态）';
   }
-
-  // 兜底：内容为空时用原始结构裁一段，避免日历里出现空白条目
-  if (summary.isEmpty && title.isEmpty) {
-    summary = _digest(cardObj);
-  }
+  if (url.isEmpty) url = 'https://www.bilibili.com/opus/$dynamicId';
 
   return FeedItem(
     platform: BilibiliAdapter.platformId,
@@ -476,11 +522,271 @@ FeedItem? parseDynamicCard(
     ),
     upName: uname,
     upFace: BilibiliAdapter._fixCover(face),
-    title: title,
-    summary: summary,
+    title: _clip(title),
+    summary: _clip(summary),
     cover: BilibiliAdapter._fixCover(cover),
     url: url,
+    extra: extra.isEmpty ? null : extra,
   );
+}
+
+/// 解析「最近观看的直播」单条记录（`x/web-interface/history/cursor?type=live`）。
+///
+/// - `author_mid` 是主播 UID（和关注列表比对就用它）
+/// - `history.oid` 是直播间号，缺失时从 `uri`（`https://live.bilibili.com/{房间号}`）里抠
+/// - `view_at` 是观看时间（秒）
+///
+/// 拿不到 UID 的条目直接返回 null —— 没有 UID 就无法判断是否已关注。
+WatchedLive? parseLiveHistoryItem(Map<String, dynamic> item) {
+  final String uid = (item['author_mid'] ?? item['mid'] ?? '').toString();
+  if (uid.isEmpty || uid == '0') return null;
+
+  String roomId = '';
+  final Object? history = item['history'];
+  if (history is Map && history['oid'] is num) {
+    final int oid = (history['oid'] as num).toInt();
+    if (oid > 0) roomId = oid.toString();
+  }
+  if (roomId.isEmpty) {
+    final RegExpMatch? m = RegExp(r'live\.bilibili\.com/(\d+)')
+        .firstMatch((item['uri'] ?? '').toString());
+    if (m != null) roomId = m.group(1)!;
+  }
+
+  final int ts = item['view_at'] is num ? (item['view_at'] as num).toInt() : 0;
+  final String t = (item['title'] ?? '').toString();
+  final String showTitle = (item['show_title'] ?? '').toString();
+
+  return WatchedLive(
+    uid: uid,
+    name: (item['author_name'] ?? '').toString(),
+    face: BilibiliAdapter._fixCover((item['author_face'] ?? '').toString()),
+    roomId: roomId,
+    title: t.isNotEmpty ? t : showTitle,
+    cover: BilibiliAdapter._fixCover((item['cover'] ?? '').toString()),
+    viewedAt: ts > 0 ? DateTime.fromMillisecondsSinceEpoch(ts * 1000) : null,
+  );
+}
+
+/// 一条动态的正文提取结果（自己的动态与转发链里的原动态共用同一套逻辑）。
+class _DynamicBody {
+  const _DynamicBody({
+    this.title = '',
+    this.summary = '',
+    this.cover = '',
+    this.url = '',
+    this.kind = FeedKind.unknown,
+    this.extra = const <String, dynamic>{},
+  });
+
+  final String title;
+  final String summary;
+  final String cover;
+  final String url;
+  final FeedKind kind;
+  final Map<String, dynamic> extra;
+}
+
+_DynamicBody _readDynamicBody(
+  String itemType,
+  Map<String, dynamic> modules,
+) {
+  final Map<String, dynamic> dyn = _asMap(modules['module_dynamic']);
+  final Map<String, dynamic> major = _asMap(dyn['major']);
+  final String majorType = (major['type'] ?? '').toString();
+  // 图片/文字动态的正文就在 module_dynamic.desc.text
+  final String descText = (_asMap(dyn['desc'])['text'] ?? '').toString();
+
+  String title = '';
+  String summary = descText;
+  String cover = '';
+  String url = '';
+  FeedKind kind = _kindFromItemType(itemType);
+  final Map<String, dynamic> extra = <String, dynamic>{};
+
+  switch (majorType) {
+    case 'MAJOR_TYPE_ARCHIVE':
+      final Map<String, dynamic> a = _asMap(major['archive']);
+      kind = FeedKind.video;
+      title = (a['title'] ?? '').toString();
+      if (summary.isEmpty) summary = (a['desc'] ?? '').toString();
+      cover = (a['cover'] ?? '').toString();
+      final String bvid = (a['bvid'] ?? '').toString();
+      url = bvid.isEmpty
+          ? _fixJump((a['jump_url'] ?? '').toString())
+          : 'https://www.bilibili.com/video/$bvid';
+      extra['duration'] = a['duration_text'];
+      extra['play'] = _asMap(a['stat'])['play'];
+      break;
+
+    case 'MAJOR_TYPE_PGC':
+      final Map<String, dynamic> p = _asMap(major['pgc']);
+      kind = FeedKind.video;
+      title = (p['title'] ?? '').toString();
+      if (summary.isEmpty) summary = (p['desc'] ?? '').toString();
+      cover = (p['cover'] ?? '').toString();
+      url = _fixJump((p['jump_url'] ?? '').toString());
+      break;
+
+    case 'MAJOR_TYPE_OPUS':
+      // itemOpusStyle 下图文/文字动态都走这里，靠有没有配图区分
+      final Map<String, dynamic> o = _asMap(major['opus']);
+      title = (o['title'] ?? '').toString();
+      final String opusText = (_asMap(o['summary'])['text'] ?? '').toString();
+      if (opusText.isNotEmpty) summary = opusText;
+      final List<Object?> pics =
+          o['pics'] is List ? (o['pics'] as List).cast<Object?>() : const <Object?>[];
+      if (pics.isNotEmpty && pics.first is Map) {
+        cover = (_asMap(pics.first)['url'] ?? '').toString();
+      }
+      kind = pics.isNotEmpty ? FeedKind.image : FeedKind.text;
+      url = _fixJump((o['jump_url'] ?? '').toString());
+      if (pics.isNotEmpty) extra['pic_count'] = pics.length;
+      break;
+
+    case 'MAJOR_TYPE_DRAW':
+      final Map<String, dynamic> d = _asMap(major['draw']);
+      kind = FeedKind.image;
+      final List<Object?> items = d['items'] is List
+          ? (d['items'] as List).cast<Object?>()
+          : const <Object?>[];
+      if (items.isNotEmpty && items.first is Map) {
+        cover = (_asMap(items.first)['src'] ?? '').toString();
+      }
+      if (items.isNotEmpty) extra['pic_count'] = items.length;
+      break;
+
+    case 'MAJOR_TYPE_ARTICLE':
+      final Map<String, dynamic> a = _asMap(major['article']);
+      kind = FeedKind.article;
+      title = (a['title'] ?? '').toString();
+      if (summary.isEmpty) summary = (a['desc'] ?? '').toString();
+      final Object? covers = a['covers'];
+      if (covers is List && covers.isNotEmpty) cover = covers.first.toString();
+      final String cvid = (a['id'] ?? '').toString();
+      url = cvid.isEmpty
+          ? _fixJump((a['jump_url'] ?? '').toString())
+          : 'https://www.bilibili.com/read/cv$cvid';
+      break;
+
+    case 'MAJOR_TYPE_LIVE_RCMD':
+      // live_rcmd.content 是一段被转义的 JSON 字符串，_asMap 会自动解码
+      final Map<String, dynamic> rc = _asMap(major['live_rcmd']);
+      final Map<String, dynamic> play =
+          _asMap(_asMap(rc['content'])['live_play_info']);
+      kind = FeedKind.live;
+      title = (play['title'] ?? '').toString();
+      summary = (play['area_name'] ?? '').toString();
+      cover = (play['cover'] ?? '').toString();
+      final String roomId = (play['room_id'] ?? '').toString();
+      url = roomId.isEmpty ? '' : 'https://live.bilibili.com/$roomId';
+      extra['online'] = play['online'];
+      break;
+
+    case 'MAJOR_TYPE_LIVE':
+      final Map<String, dynamic> l = _asMap(major['live']);
+      kind = FeedKind.live;
+      title = (l['title'] ?? '').toString();
+      summary = (l['area_name'] ?? '').toString();
+      cover = (l['cover'] ?? '').toString();
+      final String roomId = (l['room_id'] ?? '').toString();
+      url = roomId.isEmpty ? '' : 'https://live.bilibili.com/$roomId';
+      break;
+
+    case 'MAJOR_TYPE_COMMON':
+      final Map<String, dynamic> c = _asMap(major['common']);
+      title = (c['title'] ?? '').toString();
+      if (summary.isEmpty) summary = (c['desc'] ?? '').toString();
+      cover = (c['cover'] ?? '').toString();
+      url = _fixJump((c['jump_url'] ?? '').toString());
+      break;
+
+    case 'MAJOR_TYPE_MUSIC':
+      final Map<String, dynamic> m = _asMap(major['music']);
+      title = (m['title'] ?? '').toString();
+      url = _fixJump((m['jump_url'] ?? '').toString());
+      break;
+
+    case 'MAJOR_TYPE_MEDIALIST':
+      final Map<String, dynamic> m = _asMap(major['medialist']);
+      title = (m['title'] ?? '').toString();
+      cover = (m['cover'] ?? '').toString();
+      url = _fixJump((m['jump_url'] ?? '').toString());
+      break;
+
+    case 'MAJOR_TYPE_COURSES':
+      final Map<String, dynamic> c = _asMap(major['courses']);
+      title = (c['title'] ?? '').toString();
+      if (summary.isEmpty) summary = (c['desc'] ?? '').toString();
+      cover = (c['cover'] ?? '').toString();
+      url = _fixJump((c['jump_url'] ?? '').toString());
+      break;
+
+    case 'MAJOR_TYPE_UGC_SEASON':
+      final Map<String, dynamic> s = _asMap(major['ugc_season']);
+      kind = FeedKind.video;
+      title = (s['title'] ?? '').toString();
+      if (summary.isEmpty) summary = (s['desc'] ?? '').toString();
+      cover = (s['cover'] ?? '').toString();
+      url = _fixJump((s['jump_url'] ?? '').toString());
+      break;
+
+    default:
+      // 未知 major：摘要保留 desc.text，类型走 item type 的兜底映射
+      break;
+  }
+
+  final Object? like = _asMap(modules['module_stat'])['like'];
+  if (like is Map && like['count'] is num) {
+    extra['like'] = (like['count'] as num).toInt();
+  }
+  final String tagText =
+      (_asMap(modules['module_tag'])['text'] ?? '').toString();
+  if (tagText.isNotEmpty) extra['tag'] = tagText;
+
+  return _DynamicBody(
+    title: title,
+    summary: summary,
+    cover: cover,
+    url: url,
+    kind: kind,
+    extra: extra,
+  );
+}
+
+/// `item.type` → 内容类型的兜底映射（major 能判定时以 major 为准）。
+FeedKind _kindFromItemType(String type) {
+  switch (type) {
+    case 'DYNAMIC_TYPE_AV':
+      return FeedKind.video;
+    case 'DYNAMIC_TYPE_DRAW':
+      return FeedKind.image;
+    case 'DYNAMIC_TYPE_WORD':
+      return FeedKind.text;
+    case 'DYNAMIC_TYPE_FORWARD':
+      return FeedKind.repost;
+    case 'DYNAMIC_TYPE_ARTICLE':
+      return FeedKind.article;
+    case 'DYNAMIC_TYPE_LIVE_RCMD':
+    case 'DYNAMIC_TYPE_LIVE':
+      return FeedKind.live;
+    default:
+      return FeedKind.unknown;
+  }
+}
+
+/// `jump_url` 常是协议相对地址（`//www.bilibili.com/...`），补齐协议。
+String _fixJump(String url) {
+  if (url.isEmpty) return '';
+  if (url.startsWith('//')) return 'https:$url';
+  if (url.startsWith('/')) return 'https://www.bilibili.com$url';
+  return url;
+}
+
+/// 摘要统一截断，避免超长图文把本地库撑大、把列表撑爆。
+String _clip(String text, {int max = 600}) {
+  if (text.length <= max) return text;
+  return '${text.substring(0, max)}…';
 }
 
 Map<String, dynamic> _asMap(Object? raw) {
@@ -494,9 +800,4 @@ Map<String, dynamic> _asMap(Object? raw) {
     }
   }
   return const <String, dynamic>{};
-}
-
-String _digest(Map<String, dynamic> m) {
-  final String s = jsonEncode(m);
-  return s.length > 80 ? '${s.substring(0, 80)}…' : s;
 }
