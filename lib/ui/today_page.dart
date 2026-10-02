@@ -4,6 +4,7 @@ import '../main.dart';
 import '../platform/models.dart';
 import '../service/sync_service.dart';
 import 'app.dart';
+import 'danmaku_page.dart';
 import 'external_link.dart';
 import 'login_page.dart';
 import 'theme.dart';
@@ -288,6 +289,25 @@ class _TodayPageState extends State<TodayPage> {
                     ],
                   ),
                 ),
+                // 弹幕姬入口（LAPLACE Chat）。
+                //
+                // 用独立的图标按钮而不是「长按卡片」：卡片本身的点击是
+                // 「进直播间」，两个动作要给两处明确的落点，否则用户根本
+                // 不知道还能开弹幕。
+                if (s.roomId.isNotEmpty)
+                  IconButton(
+                    tooltip: '打开弹幕姬',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.forum_outlined, size: 20, color: c.brand),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => DanmakuPage(
+                          roomId: s.roomId,
+                          upName: name,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           );

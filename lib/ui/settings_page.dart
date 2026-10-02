@@ -20,6 +20,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _selfUid;
   bool _autoTrack = true;
   DateTime? _autoTrackAt;
+  bool _notifyGranted = true;
   final TextEditingController _ruleCtrl = TextEditingController();
 
   @override
@@ -41,12 +42,14 @@ class _SettingsPageState extends State<SettingsPage> {
     final SyncService sync = SyncService(appContext);
     final bool autoTrack = await sync.isAutoTrackEnabled();
     final DateTime? autoTrackAt = await sync.lastAutoTrackAt();
+    final bool notifyGranted = await appContext.notify.isPermissionGranted();
     if (!mounted) return;
     setState(() {
       _loggedIn = ok;
       _selfUid = uid;
       _autoTrack = autoTrack;
       _autoTrackAt = autoTrackAt;
+      _notifyGranted = notifyGranted;
     });
   }
 
@@ -150,15 +153,37 @@ class _SettingsPageState extends State<SettingsPage> {
               onTap: _logout,
             ),
           _section('通知'),
+          // 这一行改成显示**真实授权状态**。
+          //
+          // 原因：Android 13+ 若没授权，通知是**静默不显示**的 —— 不报错、不崩溃，
+          // 用户只会觉得「开播提醒坏了」。而原来这里只写「Android 13+ 需要显式授权」，
+          // 用户既不知道当前是什么状态，也不知道不点会有什么后果。
           ListTile(
             dense: true,
-            leading: const Icon(Icons.notifications, size: 20),
-            title: const Text('申请通知权限'),
-            subtitle: const Text('Android 13+ 需要显式授权',
-                style: TextStyle(fontSize: 11)),
+            leading: Icon(
+              _notifyGranted
+                  ? Icons.notifications_active
+                  : Icons.notifications_off_outlined,
+              size: 20,
+              color: _notifyGranted ? null : context.c.warning,
+            ),
+            title: Text(
+              _notifyGranted ? '通知已授权' : '通知未授权 —— 收不到开播提醒',
+              style: TextStyle(
+                color: _notifyGranted ? null : context.c.warning,
+              ),
+            ),
+            subtitle: Text(
+              _notifyGranted
+                  ? '开播提醒 / 动态更新 / 更新汇总 三个渠道均已创建'
+                  : '点这里授权；Android 13+ 未授权时通知会静默不显示',
+              style: const TextStyle(fontSize: 11),
+            ),
             onTap: () async {
               final bool ok = await appContext.notify.requestPermission();
-              _toast(ok ? '已授权' : '未授权，通知将不会显示');
+              if (!mounted) return;
+              await _load();
+              _toast(ok ? '已授权' : '仍未授权：请在系统设置里开启本应用的通知');
             },
           ),
           ListTile(

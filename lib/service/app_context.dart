@@ -86,7 +86,12 @@ class AppContext {
     return null;
   }
 
-  static Future<AppContext> create() async {
+  /// [onOpenLink] 由组装根（main.dart）注入 —— service 层不依赖 ui 层，
+  /// 所以「通知被点击后打开链接」这件事必须从外面传进来。
+  /// 后台 isolate 里传 null：通知点击由 UI 进程处理。
+  static Future<AppContext> create({
+    Future<void> Function(String url)? onOpenLink,
+  }) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final Dio dio = Dio(
       BaseOptions(
@@ -116,7 +121,10 @@ class AppContext {
       rulesService: rulesService,
       auth: auth,
       db: AppDatabase.instance,
-      notify: NotifyService(FlutterLocalNotificationsPlugin()),
+      notify: NotifyService(
+        FlutterLocalNotificationsPlugin(),
+        onOpenLink: onOpenLink,
+      ),
     );
 
     await ctx.notify.init();

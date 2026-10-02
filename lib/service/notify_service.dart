@@ -7,6 +7,8 @@
 ///   - 静默档 → 只进日历，不打扰
 library notify_service;
 
+import 'dart:async';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../core/text.dart';
@@ -14,7 +16,7 @@ import '../core/text.dart';
 import '../platform/models.dart';
 
 class NotifyService {
-  NotifyService(this._plugin);
+  NotifyService(this._plugin, {this.onOpenLink});
 
   final FlutterLocalNotificationsPlugin _plugin;
 
@@ -24,6 +26,16 @@ class NotifyService {
 
   bool _initialized = false;
 
+  /// 通知被点击时，把 payload 交给谁去打开。
+  ///
+  /// 用**回调注入**而不是在这里直接 import UI 层：service 不该依赖 ui。
+  /// 由 main.dart（组装根，两边都能引）在 AppContext.create 时注入。
+  ///
+  /// 这个回调原本**根本不存在**，也就是 `initialize()` 没注册任何点击回调 ——
+  /// 结果是「收到开播通知 → 点一下 → 毫无反应」，payload 白设了。
+  /// （用户反馈「开播推送还没测试」，这大概是最容易先撞上的一条。）
+  final Future<void> Function(String url)? onOpenLink;
+
   Future<bool> init() async {
     if (_initialized) return true;
     const AndroidInitializationSettings android =
@@ -32,7 +44,11 @@ class NotifyService {
     const InitializationSettings settings =
         InitializationSettings(android: android, iOS: ios);
 
-    final bool? ok = await _plugin.initialize(settings);
+    // 第三个参数是关键：注册通知点击回调。少了它，payload 永远不会被用上。
+    final bool? ok = await _plugin.initialize(
+      settings,
+      onDidReceiveNotificationResponse: _handleTap,
+    );
     _initialized = ok ?? false;
 
     final AndroidFlutterLocalNotificationsPlugin? androidImpl =
@@ -68,6 +84,59 @@ class NotifyService {
     );
 
     return _initialized;
+  }
+
+  /// 通知被点击：把 payload 交给 [onOpenLink]。
+  ///
+  /// `summary` 是汇总通知的占位 payload（没有具体链接），直接忽略。
+  void _handleTap(NotificationResponse response) {
+    final String payload = response.payload ?? '';
+    if (payload.isEmpty || payload == 'summary') return;
+    final Future<void> Function(String url)? open = onOpenLink;
+    if (open == null) return;
+    // 回调是同步签名，这里不阻塞它；唤起本身由系统完成
+    unawaited(open(payload));
+  }
+
+  /// 应用是「被点击通知拉起来」的吗？是的话返回该打开哪条链接。
+  ///
+  /// **冷启动必须单独查这一次**：那种情况下 [onOpenLink] 的点击回调不会触发
+  /// （通知是在应用进程还不存在时被点的）。只在热启动时才注册回调是不够的。
+  Future<String?> pendingLaunchPayload() async {
+    try {
+      final NotificationAppLaunchDetails? details =
+          await _plugin.getNotificationAppLaunchDetails();
+      if (details == null || details.didNotificationLaunchApp != true) {
+        return null;
+      }
+      final String payload = details.notificationResponse?.payload ?? '';
+      if (payload.isEmpty || payload == 'summary') return null;
+      return payload;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 当前是否已获得通知授权。
+  ///
+  /// Android 13+ 若用户从没授权过，通知会**静默不显示**（不报错、不崩溃），
+  /// 很容易被当成「推送功能坏了」。设置页据此给出明确提示。
+  Future<bool> isPermissionGranted() async {
+    final AndroidFlutterLocalNotificationsPlugin? androidImpl =
+        _plugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl != null) {
+      final bool? enabled = await androidImpl.areNotificationsEnabled();
+      return enabled ?? true;
+    }
+    final IOSFlutterLocalNotificationsPlugin? iosImpl =
+        _plugin.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+    if (iosImpl != null) {
+      final NotificationsEnabledOptions? opts = await iosImpl.checkPermissions();
+      return opts?.isEnabled ?? true;
+    }
+    return true;
   }
 
   /// 申请通知权限。
