@@ -12,7 +12,7 @@ import '../main.dart';
 import '../platform/bilibili.dart';
 import '../platform/models.dart';
 import '../service/auth_service.dart';
-import 'app.dart';
+import 'theme.dart';
 
 /// 登录 B 站。
 ///
@@ -253,17 +253,18 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Color get _dotColor {
+    final AppColors c = context.c;
     switch (_phase) {
       case _Phase.generating:
-        return TrackerTheme.accent;
+        return c.accent;
       case _Phase.waiting:
-        return const Color(0xFFFFB300);
+        return c.warning;
       case _Phase.scanned:
       case _Phase.success:
-        return const Color(0xFF4CAF50);
+        return c.success;
       case _Phase.expired:
       case _Phase.error:
-        return TrackerTheme.live;
+        return c.live;
     }
   }
 
@@ -318,28 +319,28 @@ class _LoginPageState extends State<LoginPage> {
           width: 56,
           height: 56,
           decoration: BoxDecoration(
-            color: TrackerTheme.surfaceAlt,
+            color: context.c.surfaceAlt,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: TrackerTheme.border),
+            border: Border.all(color: context.c.border),
           ),
-          child: const Icon(Icons.qr_code_2_rounded,
-              size: 30, color: TrackerTheme.brand),
+          child: Icon(Icons.qr_code_2_rounded,
+              size: 30, color: context.c.brand),
         ),
         const SizedBox(height: 12),
-        const Text(
+        Text(
           '连接 Bilibili',
           style: TextStyle(
-            color: TrackerTheme.textPrimary,
+            color: context.c.textPrimary,
             fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 6),
-        const Text(
+        Text(
           '登录后才能读取关注列表、动态与观看记录。\nCookie 只保存在本机 Keystore，不会离开这台设备。',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: TrackerTheme.textSecondary,
+            color: context.c.textSecondary,
             fontSize: 12,
             height: 1.5,
           ),
@@ -361,8 +362,8 @@ class _LoginPageState extends State<LoginPage> {
         Flexible(
           child: Text(
             _status,
-            style: const TextStyle(
-              color: TrackerTheme.textPrimary,
+            style: TextStyle(
+              color: context.c.textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -385,7 +386,7 @@ class _LoginPageState extends State<LoginPage> {
               // 二维码必须是浅底深码：库的前景色固定纯黑，这里给白底
               color: Colors.white,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: TrackerTheme.border),
+              border: Border.all(color: context.c.border),
             ),
             child: _qrContent(),
           ),
@@ -468,8 +469,8 @@ class _LoginPageState extends State<LoginPage> {
           label: const Text('换一个二维码'),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(44),
-            foregroundColor: TrackerTheme.textPrimary,
-            side: const BorderSide(color: TrackerTheme.border),
+            foregroundColor: context.c.textPrimary,
+            side: BorderSide(color: context.c.border),
           ),
         ),
         if (_detail.isNotEmpty) ...<Widget>[
@@ -477,8 +478,8 @@ class _LoginPageState extends State<LoginPage> {
           Text(
             _detail,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: TrackerTheme.textSecondary,
+            style: TextStyle(
+              color: context.c.textSecondary,
               fontSize: 12,
               height: 1.5,
             ),
@@ -494,22 +495,22 @@ class _LoginPageState extends State<LoginPage> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: TrackerTheme.surface,
+            color: context.c.surface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: TrackerTheme.border),
+            border: Border.all(color: context.c.border),
           ),
-          child: const Row(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Icon(Icons.phone_iphone_rounded,
-                  size: 16, color: TrackerTheme.accent),
+                  size: 16, color: context.c.accent),
               SizedBox(width: 8),
               Expanded(
                 child: Text(
                   '就在这台手机上：点上面的按钮，会直接跳到 B 站 App 的授权页，'
                   '在 App 里点「确认」即可，不用找第二台设备扫码。',
                   style: TextStyle(
-                    color: TrackerTheme.textSecondary,
+                    color: context.c.textSecondary,
                     fontSize: 12,
                     height: 1.5,
                   ),
@@ -519,9 +520,9 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
+        Text(
           'Cookie 只保存在本机 Keystore，不会上传到任何服务器',
-          style: TextStyle(color: TrackerTheme.textSecondary, fontSize: 11),
+          style: TextStyle(color: context.c.textSecondary, fontSize: 11),
         ),
       ],
     );
@@ -654,17 +655,17 @@ class _WebLoginPageState extends State<WebLoginPage> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            color: TrackerTheme.surfaceAlt,
+            color: context.c.surfaceAlt,
             child: Row(
               children: <Widget>[
-                const Icon(Icons.shield_outlined,
-                    size: 16, color: TrackerTheme.brand),
+                Icon(Icons.shield_outlined,
+                    size: 16, color: context.c.brand),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     _status,
-                    style: const TextStyle(
-                      color: TrackerTheme.textSecondary,
+                    style: TextStyle(
+                      color: context.c.textSecondary,
                       fontSize: 12,
                     ),
                   ),
@@ -703,7 +704,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
               },
             ),
           ),
-          const SafeArea(
+          SafeArea(
             top: false,
             child: Padding(
               padding: EdgeInsets.all(12),
@@ -711,7 +712,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
                 '网页登录是备用方案，可能因页面白屏而失败；\n正常情况请用扫码登录。',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: TrackerTheme.textSecondary,
+                  color: context.c.textSecondary,
                   fontSize: 11,
                 ),
               ),

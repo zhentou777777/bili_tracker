@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../platform/models.dart';
 import '../service/sync_service.dart';
-import 'app.dart';
 import 'follow_picker_page.dart';
+import 'theme.dart';
+import 'widgets.dart';
 
 /// 订阅管理：分组、抓取频率、推送开关。
 class UpsPage extends StatefulWidget {
@@ -95,7 +96,7 @@ class _UpsPageState extends State<UpsPage> {
   Future<void> _showAdded(List<UpCreator> added) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: TrackerTheme.surface,
+      backgroundColor: context.c.surface,
       isScrollControlled: true,
       builder: (BuildContext ctx) => SafeArea(
         child: Padding(
@@ -110,10 +111,10 @@ class _UpsPageState extends State<UpsPage> {
                     fontSize: 15, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 '来自「最近观看的直播」∩「你的关注列表」',
                 style: TextStyle(
-                    fontSize: 11, color: TrackerTheme.textSecondary),
+                    fontSize: 11, color: context.c.textSecondary),
               ),
               const SizedBox(height: 10),
               Flexible(
@@ -125,13 +126,13 @@ class _UpsPageState extends State<UpsPage> {
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
                       radius: 16,
-                      backgroundColor: TrackerTheme.surfaceAlt,
+                      backgroundColor: context.c.surfaceAlt,
                       backgroundImage: added[i].face.isEmpty
                           ? null
                           : NetworkImage(added[i].face),
                       child: added[i].face.isEmpty
-                          ? const Icon(Icons.person,
-                              size: 14, color: TrackerTheme.textSecondary)
+                          ? Icon(Icons.person,
+                              size: 14, color: context.c.textSecondary)
                           : null,
                     ),
                     title: Text(
@@ -142,8 +143,8 @@ class _UpsPageState extends State<UpsPage> {
                     ),
                     subtitle: Text(
                       added[i].uid,
-                      style: const TextStyle(
-                          fontSize: 11, color: TrackerTheme.textSecondary),
+                      style: TextStyle(
+                          fontSize: 11, color: context.c.textSecondary),
                     ),
                   ),
                 ),
@@ -212,37 +213,20 @@ class _UpsPageState extends State<UpsPage> {
           const Divider(height: 1),
           Expanded(
             child: _ups.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          const Text(
-                            '还没有追更对象。\n\n'
-                            '点右上角 ✨ 自动追更：把你「最近看过直播」且「已关注」的主播'
-                            '一次性加进来；\n'
-                            '也可以点 ▤ 从完整关注列表里手动勾选，'
-                            '或在上面输入 UID 直接添加。',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                color: TrackerTheme.textSecondary, height: 1.5),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: TrackerTheme.brand,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: _autoTracking ? null : _autoTrack,
-                            icon: const Icon(Icons.auto_awesome, size: 18),
-                            label: const Text('自动追更最近看直播的主播'),
-                          ),
-                        ],
-                      ),
+                ? EmptyState(
+                    icon: Icons.person_add_alt_1_rounded,
+                    title: '还没有追更对象',
+                    description: '点右上角 ✨ 自动追更：把你「最近看过直播」且「已关注」的主播'
+                        '一次性加进来；\n也可以点 ▤ 从完整关注列表里手动勾选，'
+                        '或在上面输入 UID 直接添加。',
+                    action: FilledButton.icon(
+                      onPressed: _autoTracking ? null : _autoTrack,
+                      icon: const Icon(Icons.auto_awesome, size: 18),
+                      label: const Text('自动追更最近看直播的主播'),
                     ),
                   )
                 : ListView.builder(
+                    padding: const EdgeInsets.only(top: 8, bottom: 20),
                     itemCount: _ups.length,
                     itemBuilder: (BuildContext context, int i) =>
                         _upTile(_ups[i]),
@@ -263,20 +247,20 @@ class _UpsPageState extends State<UpsPage> {
                 style: const TextStyle(fontSize: 13),
                 decoration: InputDecoration(
                   hintText: '输入 UID 或 space.bilibili.com/123456',
-                  hintStyle: const TextStyle(
+                  hintStyle: TextStyle(
                     fontSize: 12,
-                    color: TrackerTheme.textSecondary,
+                    color: context.c.textSecondary,
                   ),
                   isDense: true,
                   filled: true,
-                  fillColor: TrackerTheme.surface,
+                  fillColor: context.c.surface,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: TrackerTheme.border),
+                    borderSide: BorderSide(color: context.c.border),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: TrackerTheme.border),
+                    borderSide: BorderSide(color: context.c.border),
                   ),
                 ),
                 onSubmitted: (_) => _addUp(),
@@ -284,7 +268,7 @@ class _UpsPageState extends State<UpsPage> {
             ),
             const SizedBox(width: 8),
             IconButton(
-              icon: const Icon(Icons.add_circle, color: TrackerTheme.brand),
+              icon: Icon(Icons.add_circle, color: context.c.brand),
               onPressed: _addUp,
             ),
           ],
@@ -312,58 +296,86 @@ class _UpsPageState extends State<UpsPage> {
             setState(() => _filterGroup = value);
             _load();
           },
-          backgroundColor: TrackerTheme.surface,
-          selectedColor: TrackerTheme.brand.withValues(alpha: 0.2),
-          checkmarkColor: TrackerTheme.brand,
-          side: const BorderSide(color: TrackerTheme.border),
+          backgroundColor: context.c.surface,
+          selectedColor: context.c.brand.withValues(alpha: 0.2),
+          checkmarkColor: context.c.brand,
+          side: BorderSide(color: context.c.border),
           visualDensity: VisualDensity.compact,
         ),
       );
 
-  Widget _upTile(UpCreator up) => ListTile(
-        dense: true,
-        leading: CircleAvatar(
-          radius: 18,
-          backgroundColor: TrackerTheme.surfaceAlt,
-          backgroundImage: up.face.isEmpty ? null : NetworkImage(up.face),
-          child: up.face.isEmpty
-              ? const Icon(Icons.person,
-                  size: 16, color: TrackerTheme.textSecondary)
-              : null,
-        ),
-        title: Text(
-          up.name.isEmpty ? up.uid : up.name,
-          style: const TextStyle(fontSize: 14),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${up.uid} · ${up.group} · ${_freqLabel(up.frequency)}',
-          style:
-              const TextStyle(fontSize: 11, color: TrackerTheme.textSecondary),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+  Widget _upTile(UpCreator up) => AppCard(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        onTap: () => _openConfig(up),
+        child: Row(
           children: <Widget>[
-            if (up.pushLive)
-              const Icon(Icons.live_tv, size: 14, color: TrackerTheme.live),
-            if (up.pushDynamic) ...<Widget>[
-              const SizedBox(width: 6),
-              const Icon(Icons.notifications_active,
-                  size: 14, color: TrackerTheme.brand),
-            ],
-            if (!up.pushDynamic && !up.pushLive)
-              const Icon(Icons.notifications_off,
-                  size: 14, color: TrackerTheme.textSecondary),
+            AvatarBubble(url: up.face, size: 40),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    up.name.isEmpty ? up.uid : up.name,
+                    style: TextStyle(
+                      color: context.c.textPrimary,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: <Widget>[
+                      if (up.group.isNotEmpty) ...<Widget>[
+                        TagChip(label: up.group, dense: true),
+                        const SizedBox(width: 5),
+                      ],
+                      TagChip(label: _freqLabel(up.frequency), dense: true),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          up.uid,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: context.c.textSecondary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (up.pushLive)
+                  Icon(Icons.live_tv_rounded,
+                      size: 15, color: context.c.live),
+                if (up.pushDynamic) ...<Widget>[
+                  const SizedBox(width: 6),
+                  Icon(Icons.notifications_active_rounded,
+                      size: 15, color: context.c.brand),
+                ],
+                if (!up.pushDynamic && !up.pushLive)
+                  Icon(Icons.notifications_off_rounded,
+                      size: 15, color: context.c.textSecondary),
+              ],
+            ),
           ],
         ),
-        onTap: () => _openConfig(up),
       );
 
   Future<void> _openConfig(UpCreator up) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: TrackerTheme.surface,
+      backgroundColor: context.c.surface,
       isScrollControlled: true,
       builder: (BuildContext ctx) => _UpConfigSheet(
         up: up,
@@ -440,15 +452,15 @@ class _UpConfigSheetState extends State<_UpConfigSheet> {
                     Navigator.of(context).pop();
                     widget.onChanged();
                   },
-                  child: const Text('删除',
-                      style: TextStyle(color: TrackerTheme.live)),
+                  child: Text('删除',
+                      style: TextStyle(color: context.c.live)),
                 ),
               ],
             ),
             const Divider(height: 24),
-            const Text('分组',
+            Text('分组',
                 style:
-                    TextStyle(fontSize: 12, color: TrackerTheme.textSecondary)),
+                    TextStyle(fontSize: 12, color: context.c.textSecondary)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -458,15 +470,15 @@ class _UpConfigSheetState extends State<_UpConfigSheet> {
                     label: Text(g, style: const TextStyle(fontSize: 12)),
                     selected: _up.group == g,
                     onSelected: (bool _) => setState(() => _up.group = g),
-                    backgroundColor: TrackerTheme.surfaceAlt,
-                    selectedColor: TrackerTheme.brand.withValues(alpha: 0.25),
+                    backgroundColor: context.c.surfaceAlt,
+                    selectedColor: context.c.brand.withValues(alpha: 0.25),
                   ),
               ],
             ),
             const SizedBox(height: 14),
-            const Text('抓取频率',
+            Text('抓取频率',
                 style:
-                    TextStyle(fontSize: 12, color: TrackerTheme.textSecondary)),
+                    TextStyle(fontSize: 12, color: context.c.textSecondary)),
             const SizedBox(height: 8),
             SegmentedButton<FetchFrequency>(
               segments: const <ButtonSegment<FetchFrequency>>[
@@ -509,8 +521,8 @@ class _UpConfigSheetState extends State<_UpConfigSheet> {
                 const Text('开播延迟推送', style: TextStyle(fontSize: 13)),
                 const Spacer(),
                 Text('${_up.liveDelayMinutes} 分钟',
-                    style: const TextStyle(
-                        fontSize: 12, color: TrackerTheme.textSecondary)),
+                    style: TextStyle(
+                        fontSize: 12, color: context.c.textSecondary)),
               ],
             ),
             Slider(
@@ -518,7 +530,7 @@ class _UpConfigSheetState extends State<_UpConfigSheet> {
               min: 0,
               max: 30,
               divisions: 6,
-              activeColor: TrackerTheme.brand,
+              activeColor: context.c.brand,
               onChanged: (double v) =>
                   setState(() => _up.liveDelayMinutes = v.round()),
             ),
@@ -527,7 +539,7 @@ class _UpConfigSheetState extends State<_UpConfigSheet> {
               width: double.infinity,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: TrackerTheme.brand,
+                  backgroundColor: context.c.brand,
                   foregroundColor: Colors.white,
                 ),
                 onPressed: _save,

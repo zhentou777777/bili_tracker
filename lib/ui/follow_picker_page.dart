@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../platform/models.dart';
 import '../service/sync_service.dart';
-import 'app.dart';
 import 'login_page.dart';
+import 'theme.dart';
 
 /// 从 B 站关注列表里挑选要追更的 UP 主。
 ///
@@ -270,21 +270,21 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
           controller: _searchCtrl,
           style: const TextStyle(fontSize: 13),
           decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search,
-                size: 18, color: TrackerTheme.textSecondary),
+            prefixIcon: Icon(Icons.search,
+                size: 18, color: context.c.textSecondary),
             hintText: '在关注列表里搜索（名字 / UID）',
             hintStyle:
-                const TextStyle(fontSize: 12, color: TrackerTheme.textSecondary),
+                TextStyle(fontSize: 12, color: context.c.textSecondary),
             isDense: true,
             filled: true,
-            fillColor: TrackerTheme.surface,
+            fillColor: context.c.surface,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: TrackerTheme.border),
+              borderSide: BorderSide(color: context.c.border),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: TrackerTheme.border),
+              borderSide: BorderSide(color: context.c.border),
             ),
           ),
           onChanged: (String v) => setState(() => _keyword = v),
@@ -301,8 +301,8 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
             LinearProgressIndicator(
               // clamp 返回 num，显式转 double 以匹配参数类型
               value: _total > 0 ? (_got / _total).clamp(0.0, 1.0).toDouble() : null,
-              backgroundColor: TrackerTheme.surfaceAlt,
-              color: TrackerTheme.brand,
+              backgroundColor: context.c.surfaceAlt,
+              color: context.c.brand,
               minHeight: 4,
             ),
             const SizedBox(height: 6),
@@ -310,8 +310,8 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
               _total > 0
                   ? '正在读取关注列表… 已获取 $_got / $_total'
                   : '正在读取关注列表… 已获取 $_got',
-              style: const TextStyle(
-                  fontSize: 11, color: TrackerTheme.textSecondary),
+              style: TextStyle(
+                  fontSize: 11, color: context.c.textSecondary),
             ),
           ],
         ),
@@ -333,13 +333,13 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
           Text(
             hint,
             style:
-                const TextStyle(fontSize: 11, color: TrackerTheme.textSecondary),
+                TextStyle(fontSize: 11, color: context.c.textSecondary),
           ),
           if (_error != null) ...<Widget>[
             const SizedBox(height: 4),
             Text(
               _error!,
-              style: const TextStyle(fontSize: 11, color: TrackerTheme.live),
+              style: TextStyle(fontSize: 11, color: context.c.live),
             ),
           ],
         ],
@@ -357,8 +357,8 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
                 ? '还没有拉到关注列表。\n请确认已登录 B 站账号，然后点右上角 ↻ 重试。'
                 : '没有匹配「$_keyword」的 UP 主',
             textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontSize: 13, color: TrackerTheme.textSecondary),
+            style: TextStyle(
+                fontSize: 13, color: context.c.textSecondary),
           ),
         ),
       );
@@ -388,26 +388,26 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
       controlAffinity: ListTileControlAffinity.leading,
       secondary: CircleAvatar(
         radius: 18,
-        backgroundColor: TrackerTheme.surfaceAlt,
+        backgroundColor: context.c.surfaceAlt,
         backgroundImage:
             up.face.isEmpty ? null : NetworkImage(up.face),
         child: up.face.isEmpty
-            ? const Icon(Icons.person,
-                size: 16, color: TrackerTheme.textSecondary)
+            ? Icon(Icons.person,
+                size: 16, color: context.c.textSecondary)
             : null,
       ),
       title: Text(
         up.name.isEmpty ? up.uid : up.name,
         style: TextStyle(
           fontSize: 14,
-          color: tracked ? TrackerTheme.textSecondary : TrackerTheme.textPrimary,
+          color: tracked ? context.c.textSecondary : context.c.textPrimary,
         ),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
         tracked ? '已追更 · ${up.uid}' : up.uid,
-        style: const TextStyle(fontSize: 11, color: TrackerTheme.textSecondary),
+        style: TextStyle(fontSize: 11, color: context.c.textSecondary),
       ),
     );
   }
@@ -422,8 +422,8 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
             OutlinedButton(
               onPressed: n > 0 ? _clearSelection : null,
               style: OutlinedButton.styleFrom(
-                foregroundColor: TrackerTheme.textSecondary,
-                side: const BorderSide(color: TrackerTheme.border),
+                foregroundColor: context.c.textSecondary,
+                side: BorderSide(color: context.c.border),
               ),
               child: const Text('清空'),
             ),
@@ -431,8 +431,8 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
             OutlinedButton(
               onPressed: _visibleSelectable > 0 ? _selectAllVisible : null,
               style: OutlinedButton.styleFrom(
-                foregroundColor: TrackerTheme.accent,
-                side: const BorderSide(color: TrackerTheme.border),
+                foregroundColor: context.c.accent,
+                side: BorderSide(color: context.c.border),
               ),
               child: const Text('全选当前'),
             ),
@@ -440,10 +440,10 @@ class _FollowPickerPageState extends State<FollowPickerPage> {
             Expanded(
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: TrackerTheme.brand,
+                  backgroundColor: context.c.brand,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: TrackerTheme.surfaceAlt,
-                  disabledForegroundColor: TrackerTheme.textSecondary,
+                  disabledBackgroundColor: context.c.surfaceAlt,
+                  disabledForegroundColor: context.c.textSecondary,
                 ),
                 onPressed: n > 0 ? _confirm : null,
                 child: Text(n > 0 ? '加入追更（$n）' : '请勾选要追更的 UP 主'),

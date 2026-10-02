@@ -3,7 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../platform/models.dart';
-import 'app.dart';
+import 'theme.dart';
 
 /// 考古检索：按关键词、UP 主、内容类型、时间范围回溯本地已抓取内容。
 class SearchPage extends StatefulWidget {
@@ -62,21 +62,21 @@ class _SearchPageState extends State<SearchPage> {
               onSubmitted: (_) => _search(),
               decoration: InputDecoration(
                 hintText: '搜索标题、正文或 UP 主名',
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
                   fontSize: 12,
-                  color: TrackerTheme.textSecondary,
+                  color: context.c.textSecondary,
                 ),
                 prefixIcon: const Icon(Icons.search, size: 18),
                 isDense: true,
                 filled: true,
-                fillColor: TrackerTheme.surface,
+                fillColor: context.c.surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: TrackerTheme.border),
+                  borderSide: BorderSide(color: context.c.border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: TrackerTheme.border),
+                  borderSide: BorderSide(color: context.c.border),
                 ),
               ),
             ),
@@ -104,10 +104,10 @@ class _SearchPageState extends State<SearchPage> {
                         });
                         _search();
                       },
-                      backgroundColor: TrackerTheme.surface,
-                      selectedColor: TrackerTheme.brand.withValues(alpha: 0.2),
+                      backgroundColor: context.c.surface,
+                      selectedColor: context.c.brand.withValues(alpha: 0.2),
                       visualDensity: VisualDensity.compact,
-                      side: const BorderSide(color: TrackerTheme.border),
+                      side: BorderSide(color: context.c.border),
                     ),
                   ),
               ],
@@ -132,10 +132,10 @@ class _SearchPageState extends State<SearchPage> {
                         setState(() => _rangeDays = r.value);
                         _search();
                       },
-                      backgroundColor: TrackerTheme.surface,
-                      selectedColor: TrackerTheme.brand.withValues(alpha: 0.2),
+                      backgroundColor: context.c.surface,
+                      selectedColor: context.c.brand.withValues(alpha: 0.2),
                       visualDensity: VisualDensity.compact,
-                      side: const BorderSide(color: TrackerTheme.border),
+                      side: BorderSide(color: context.c.border),
                     ),
                   ),
                 const Spacer(),
@@ -148,9 +148,9 @@ class _SearchPageState extends State<SearchPage> {
                       value: _upUid,
                       hint:
                           const Text('全部 UP 主', style: TextStyle(fontSize: 11)),
-                      style: const TextStyle(
-                          fontSize: 11, color: TrackerTheme.textPrimary),
-                      dropdownColor: TrackerTheme.surfaceAlt,
+                      style: TextStyle(
+                          fontSize: 11, color: context.c.textPrimary),
+                      dropdownColor: context.c.surfaceAlt,
                       underline: const SizedBox(),
                       items: <DropdownMenuItem<String>>[
                         const DropdownMenuItem<String>(
@@ -179,19 +179,19 @@ class _SearchPageState extends State<SearchPage> {
           const Divider(height: 16),
           Expanded(
             child: !_searched
-                ? const Center(
+                ? Center(
                     child: Text(
                       '输入关键词开始检索本地已抓取内容',
                       style: TextStyle(
-                          color: TrackerTheme.textSecondary, fontSize: 13),
+                          color: context.c.textSecondary, fontSize: 13),
                     ),
                   )
                 : _results.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           '没有匹配结果',
                           style: TextStyle(
-                              color: TrackerTheme.textSecondary, fontSize: 13),
+                              color: context.c.textSecondary, fontSize: 13),
                         ),
                       )
                     : ListView.builder(
@@ -208,9 +208,9 @@ class _SearchPageState extends State<SearchPage> {
                             ),
                             subtitle: Text(
                               '${it.upName} · ${feedKindLabel(it.kind)} · ${_ymd(it.publishAt)}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
-                                color: TrackerTheme.textSecondary,
+                                color: context.c.textSecondary,
                               ),
                             ),
                             onTap: () async {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../platform/models.dart';
-import 'app.dart';
+import 'theme.dart';
 
 /// 动态日历：按日聚合，可切月历 / 周历。
 class CalendarPage extends StatefulWidget {
@@ -183,8 +183,8 @@ class _CalendarPageState extends State<CalendarPage> {
                 child: Center(
                   child: Text(
                     w,
-                    style: const TextStyle(
-                        fontSize: 12, color: TrackerTheme.textSecondary),
+                    style: TextStyle(
+                        fontSize: 12, color: context.c.textSecondary),
                   ),
                 ),
               ),
@@ -212,11 +212,11 @@ class _CalendarPageState extends State<CalendarPage> {
             margin: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               color: isSel
-                  ? TrackerTheme.brand.withValues(alpha: 0.18)
+                  ? context.c.brand.withValues(alpha: 0.18)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: isToday ? TrackerTheme.brand : Colors.transparent,
+                color: isToday ? context.c.brand : Colors.transparent,
                 width: 1,
               ),
             ),
@@ -230,9 +230,9 @@ class _CalendarPageState extends State<CalendarPage> {
                     fontWeight: isSel ? FontWeight.w700 : FontWeight.w400,
                     color: inMonth
                         ? (isSel
-                            ? TrackerTheme.brand
-                            : TrackerTheme.textPrimary)
-                        : TrackerTheme.textSecondary.withValues(alpha: 0.4),
+                            ? context.c.brand
+                            : context.c.textPrimary)
+                        : context.c.textSecondary.withValues(alpha: 0.4),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -256,8 +256,8 @@ class _CalendarPageState extends State<CalendarPage> {
                         ),
                       if (live > 0) ...<Widget>[
                         const SizedBox(width: 2),
-                        const Icon(Icons.circle,
-                            size: 5, color: TrackerTheme.live),
+                        Icon(Icons.circle,
+                            size: 5, color: context.c.live),
                       ],
                     ],
                   ),
@@ -293,13 +293,13 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         ),
         if (_dayItems.isEmpty)
-          const Padding(
+          Padding(
             padding: EdgeInsets.all(24),
             child: Center(
               child: Text(
                 '这一天没有记录',
                 style:
-                    TextStyle(color: TrackerTheme.textSecondary, fontSize: 13),
+                    TextStyle(color: context.c.textSecondary, fontSize: 13),
               ),
             ),
           )
@@ -310,9 +310,16 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   /// 条数越多颜色越亮，一眼看出哪天更新密集。
-  static Color _heatColor(int count) {
-    if (count >= 10) return const Color(0xFFFF4D6D);
-    if (count >= 5) return const Color(0xFFFB7299);
+  ///
+  /// 徽标上是**白字**，所以这里刻意都用「中深色」，不跟着主题翻白 ——
+  /// 否则浅色主题下白字压在浅色块上会看不清。只有最亮的两档用主题色，
+  /// 深浅两套配色的那两支都够深，白字依旧可读。
+  ///
+  /// （不能加 `static`：主题色来自 `context.c`。）
+  Color _heatColor(int count) {
+    final AppColors c = context.c;
+    if (count >= 10) return c.live;
+    if (count >= 5) return c.brand;
     if (count >= 3) return const Color(0xFFC4566F);
     return const Color(0xFF6B7A90);
   }
@@ -334,11 +341,11 @@ class _CalendarFeedRow extends StatelessWidget {
       dense: true,
       leading: CircleAvatar(
         radius: 16,
-        backgroundColor: TrackerTheme.surfaceAlt,
+        backgroundColor: context.c.surfaceAlt,
         backgroundImage: item.upFace.isEmpty ? null : NetworkImage(item.upFace),
         child: item.upFace.isEmpty
-            ? const Icon(Icons.person,
-                size: 14, color: TrackerTheme.textSecondary)
+            ? Icon(Icons.person,
+                size: 14, color: context.c.textSecondary)
             : null,
       ),
       title: Text(
@@ -349,7 +356,7 @@ class _CalendarFeedRow extends StatelessWidget {
       ),
       subtitle: Text(
         '${item.upName} · ${feedKindLabel(item.kind)} · ${_hhmm(item.publishAt)}',
-        style: const TextStyle(fontSize: 11, color: TrackerTheme.textSecondary),
+        style: TextStyle(fontSize: 11, color: context.c.textSecondary),
       ),
     );
   }

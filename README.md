@@ -80,14 +80,17 @@ lib/
 │   ├── bg_service.dart     WorkManager 后台任务
 │   ├── rules_service.dart  规则加载（缓存与内置取版本更高者）+ 远端覆盖
 │   └── app_context.dart    依赖装配
-└── ui/                  深色高密度 UI（今日/日历/UP主/考古/设置）
+└── ui/                  界面（浅色/深色双主题）
+    ├── theme.dart        配色（AppColors 主题扩展）+ ThemeData + 主题模式控制器
+    ├── widgets.dart      共用组件（AppCard/SectionTitle/TagChip/InfoBar/EmptyState/AvatarBubble）
     └── login_page.dart   扫码登录 + 同设备跳转 B 站 App 确认
                           （内含 WebLoginPage：原 WebView 登录，保留为备用路径）
 
 assets/rules/platforms.json   平台接口规则表（含 login 段）
 tools/probe.dart              CLI 探针（真实接口验证，40 项）
-test/dynamic_parser_test.dart 动态/观看历史解析单元测试（离线样本，17 项）
-test/login_parser_test.dart   扫码登录状态码映射 + Set-Cookie 解析（离线样本，23 项）
+test/widget_test.dart         主题与共用组件测试（13 项）
+test/dynamic_parser_test.dart 动态/观看历史解析单元测试（离线样本，12 项）
+test/login_parser_test.dart   扫码登录状态码映射 + Set-Cookie 解析（离线样本，18 项）
 server/worker.js              Cloudflare Worker 推送中继（第二阶段）
 ```
 
@@ -111,6 +114,13 @@ server/worker.js              Cloudflare Worker 推送中继（第二阶段）
 注意 `/qrcode/poll` 有**两层 `code`**：外层恒为 0，真实扫码状态在 `data.code`（86101/86090/86038/0），
 只看外层会在第一次轮询就误判成功。B 站**官方**的跳转 App 授权 OAuth 不可用（需企业资质，且换不到 SESSDATA）。
 详见 `登录方式改造说明.md`。
+
+**⑦ 颜色一律走主题扩展，不写静态色值。** 界面支持**浅色 / 深色 / 跟随系统**三态（设置 → 外观）。
+取色统一用 `context.c.xxx`，绝不能再用 `static const Color` —— 静态常量编译期定死，运行时换不了主题。
+两个坑要知道：① 主题色不是常量，所以**不能写在 `const` 表达式里**；
+② `context` 是 `State` 的实例属性，**`static` 方法里拿不到**（辅助方法别加 `static`）。
+浅色主题的主色刻意不用官网那支 `#FB7299`（白底对比度仅约 2.2:1），改用更深的 `#E23F6E`。
+详见 `界面改版说明.md`。
 
 ## 5. 核心逻辑验证结果
 

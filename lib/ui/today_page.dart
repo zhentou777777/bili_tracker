@@ -6,6 +6,8 @@ import '../platform/models.dart';
 import '../service/sync_service.dart';
 import 'app.dart';
 import 'login_page.dart';
+import 'theme.dart';
+import 'widgets.dart';
 
 /// 今日速览：开播中置顶 + 最近动态倒序。
 class TodayPage extends StatefulWidget {
@@ -140,43 +142,74 @@ class _TodayPageState extends State<TodayPage> {
 
   @override
   Widget build(BuildContext context) {
+    final AppColors c = context.c;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('今日速览'),
         actions: <Widget>[
           IconButton(
+            tooltip: '刷新',
             icon: _loading
                 ? const SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.refresh),
+                : const Icon(Icons.refresh_rounded),
             onPressed: _sync,
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: !_loggedIn
           ? const LoginPrompt(message: '登录后即可聚合你关注的 UP 主最近动态')
           : RefreshIndicator(
+              color: c.brand,
               onRefresh: _sync,
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.only(bottom: 28),
                 children: <Widget>[
-                  if (_lastReport != null) _reportBar(_lastReport!),
+                  if (_lastReport != null)
+                    InfoBar(text: _lastReport!, icon: Icons.insights_rounded),
                   if (_live.isNotEmpty) ...<Widget>[
-                    _sectionTitle('正在直播', TrackerTheme.live, Icons.circle),
+                    SectionTitle(
+                      title: '正在直播',
+                      icon: Icons.podcasts_rounded,
+                      color: c.live,
+                      trailing: TagChip(
+                        label: '${_live.length}',
+                        color: c.live,
+                        dense: true,
+                      ),
+                    ),
                     ..._live.map(_liveCard),
                   ],
-                  _sectionTitle(
-                      '最近 $_days 天', TrackerTheme.brand, Icons.history),
+                  SectionTitle(
+                    title: '最近 $_days 天',
+                    icon: Icons.history_rounded,
+                    color: c.brand,
+                    trailing: _items.isEmpty
+                        ? null
+                        : TagChip(
+                            label: '${_items.length} 条',
+                            color: c.textSecondary,
+                            dense: true,
+                          ),
+                  ),
                   if (_items.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Center(
-                        child: Text(
-                          '还没有抓取到动态，点右上角刷新试试',
-                          style: TextStyle(color: TrackerTheme.textSecondary),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: EmptyState(
+                        icon: Icons.inbox_rounded,
+                        title: '还没有抓到动态',
+                        description: _live.isEmpty
+                            ? '点右上角刷新开始抓取；也可以先去「UP 主」页添加追更对象。'
+                            : '点右上角刷新开始抓取。',
+                        action: FilledButton.icon(
+                          onPressed: _loading ? null : _sync,
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('立即刷新'),
                         ),
                       ),
                     )
@@ -188,174 +221,186 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  Widget _reportBar(String text) => Container(
-        margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: TrackerTheme.surfaceAlt,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: TrackerTheme.border),
-        ),
-        child: Row(
-          children: <Widget>[
-            const Icon(Icons.info_outline,
-                size: 14, color: TrackerTheme.textSecondary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                    color: TrackerTheme.textSecondary, fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-      );
-
-  Widget _sectionTitle(String text, Color color, IconData icon) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 18, 14, 8),
-        child: Row(
-          children: <Widget>[
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 6),
-            Text(
-              text,
-              style: TextStyle(
-                color: color,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      );
-
+  /// 直播卡片：左侧一条红色竖条，一眼能从动态里区分出来。
   Widget _liveCard(LiveStatus s) => FutureBuilder<UpCreator?>(
         future: appContext.db.up(s.platform, s.upUid),
         builder: (BuildContext context, AsyncSnapshot<UpCreator?> snap) {
+          final AppColors c = context.c;
           final String name = snap.data?.name ?? s.upUid;
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: ListTile(
-              dense: true,
-              leading: _avatar(snap.data?.face ?? '', live: true),
-              title: Text(
-                name,
-                style:
-                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                s.title.isEmpty ? '直播中' : s.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Icon(Icons.visibility,
-                      size: 12, color: TrackerTheme.textSecondary),
-                  const SizedBox(width: 4),
-                  Text(_formatCount(s.online),
-                      style: const TextStyle(fontSize: 12)),
-                ],
-              ),
-              onTap: () => _open(s.roomId.isEmpty
-                  ? ''
-                  : 'https://live.bilibili.com/${s.roomId}'),
+
+          return AppCard(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            accent: c.live,
+            onTap: () => _open(s.roomId.isEmpty
+                ? ''
+                : 'https://live.bilibili.com/${s.roomId}'),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                AvatarBubble(url: snap.data?.face ?? '', size: 42, live: true),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Flexible(
+                            child: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: c.textPrimary,
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const TagChip(
+                            label: '直播中',
+                            icon: Icons.circle,
+                            dense: true,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        s.title.isEmpty ? '直播中' : s.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: c.textSecondary, fontSize: 12.5),
+                      ),
+                      const SizedBox(height: 7),
+                      Row(
+                        children: <Widget>[
+                          Icon(Icons.visibility_rounded,
+                              size: 12, color: c.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${_formatCount(s.online)} 人在看',
+                            style: TextStyle(color: c.textSecondary, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           );
         },
       );
 
-  Widget _feedCard(FeedItem it) => Card(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        child: ListTile(
-          dense: true,
-          leading: _avatar(it.upFace, live: false),
-          title: RichText(
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            text: TextSpan(
-              style: const TextStyle(
-                  fontSize: 14, color: TrackerTheme.textPrimary),
-              children: <TextSpan>[
-                TextSpan(
-                  text: '${it.upName.isEmpty ? it.upUid : it.upName} ',
-                  style: const TextStyle(
-                    color: TrackerTheme.textSecondary,
-                    fontSize: 12,
+  /// 动态卡片：作者与时间一行，标题独立一行，类型标签在底部。
+  ///
+  /// 相比原来「作者名和标题挤进同一个 RichText」的排法，
+  /// 这种层级更清楚：先看到「谁 · 什么时候」，再看到内容。
+  Widget _feedCard(FeedItem it) {
+    final AppColors c = context.c;
+    final Color kindColor = _kindColor(it.kind);
+
+    return AppCard(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      onTap: () => _open(it.url),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          AvatarBubble(url: it.upFace, size: 38),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Flexible(
+                      child: Text(
+                        it.upName.isEmpty ? it.upUid : it.upName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: c.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('·',
+                        style: TextStyle(color: c.textSecondary, fontSize: 12)),
+                    const SizedBox(width: 6),
+                    Text(
+                      _formatTime(it.publishAt),
+                      style: TextStyle(color: c.textSecondary, fontSize: 11),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  it.title.isEmpty ? it.summary : it.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: c.textPrimary,
+                    fontSize: 14,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                TextSpan(
-                  text: it.title.isEmpty ? it.summary : it.title,
+                const SizedBox(height: 9),
+                Row(
+                  children: <Widget>[
+                    TagChip(label: feedKindLabel(it.kind), color: kindColor),
+                    if (it.summary.isNotEmpty && it.title.isNotEmpty) ...<Widget>[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          it.summary,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: c.textSecondary, fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
           ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Row(
-              children: <Widget>[
-                _kindChip(it.kind),
-                const SizedBox(width: 8),
-                Text(
-                  _formatTime(it.publishAt),
-                  style: const TextStyle(
-                      fontSize: 11, color: TrackerTheme.textSecondary),
-                ),
-              ],
-            ),
-          ),
-          onTap: () => _open(it.url),
-        ),
-      );
+        ],
+      ),
+    );
+  }
 
-  Widget _avatar(String url, {required bool live}) => Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: live ? TrackerTheme.live : TrackerTheme.border,
-            width: live ? 2 : 1,
-          ),
-          image: url.isEmpty
-              ? null
-              : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
-        ),
-        child: url.isEmpty
-            ? const Icon(Icons.person,
-                size: 18, color: TrackerTheme.textSecondary)
-            : null,
-      );
+  /// 类型标签配色。
+  ///
+  /// 两个注意点：
+  /// 1. **不能是 static** —— 颜色来自 `context.c`，而 static 方法拿不到
+  ///    State 的 `context`。（阶段 E 把颜色从静态常量搬到主题后，
+  ///    原来的 `static Color _kindColor` 会直接编译不过。）
+  /// 2. 标签是「同色淡底 + 同色文字」，浅色主题下必须用更深的色，
+  ///    否则橙/紫这类亮色在白底上对比度只有 2:1 左右，小字看不清。
+  Color _kindColor(FeedKind kind) {
+    final AppColors c = context.c;
+    final bool light = !c.isDark;
 
-  Widget _kindChip(FeedKind kind) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-        decoration: BoxDecoration(
-          color: _kindColor(kind).withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          feedKindLabel(kind),
-          style: TextStyle(fontSize: 10, color: _kindColor(kind)),
-        ),
-      );
-
-  static Color _kindColor(FeedKind kind) {
     switch (kind) {
       case FeedKind.video:
-        return TrackerTheme.brand;
+        return c.brand;
       case FeedKind.live:
-        return TrackerTheme.live;
+        return c.live;
       case FeedKind.image:
-        return Colors.orangeAccent;
+        return light ? const Color(0xFFC26A00) : const Color(0xFFFF9F43);
       case FeedKind.article:
-        return Colors.purpleAccent;
+        return light ? const Color(0xFF6A3FD9) : const Color(0xFF9B6BFF);
       case FeedKind.repost:
-        return Colors.blueGrey;
+        return light ? const Color(0xFF5C6779) : const Color(0xFF7A869A);
       default:
-        return TrackerTheme.textSecondary;
+        return c.textSecondary;
     }
   }
 

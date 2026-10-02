@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../service/bg_service.dart';
 import '../service/sync_service.dart';
-import 'app.dart';
 import 'login_page.dart';
+import 'theme.dart';
+import 'widgets.dart';
 
 /// 设置：账号、通知、规则、后台任务、数据清理。
 class SettingsPage extends StatefulWidget {
@@ -66,12 +67,63 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: <Widget>[
+          _section('外观'),
+          ValueListenableBuilder<ThemeMode>(
+            valueListenable: appTheme,
+            builder: (BuildContext context, ThemeMode mode, _) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    SegmentedButton<ThemeMode>(
+                      segments: const <ButtonSegment<ThemeMode>>[
+                        ButtonSegment<ThemeMode>(
+                          value: ThemeMode.system,
+                          label: Text('跟随系统'),
+                          icon: Icon(Icons.brightness_auto_outlined, size: 17),
+                        ),
+                        ButtonSegment<ThemeMode>(
+                          value: ThemeMode.light,
+                          label: Text('浅色'),
+                          icon: Icon(Icons.light_mode_outlined, size: 17),
+                        ),
+                        ButtonSegment<ThemeMode>(
+                          value: ThemeMode.dark,
+                          label: Text('深色'),
+                          icon: Icon(Icons.dark_mode_outlined, size: 17),
+                        ),
+                      ],
+                      selected: <ThemeMode>{mode},
+                      showSelectedIcon: false,
+                      // 用 --dart-define=FORCE_THEME=xxx 打的包会锁死主题，这里置灰
+                      onSelectionChanged: appTheme.isForced
+                          ? null
+                          : (Set<ThemeMode> picked) =>
+                              appTheme.setMode(picked.first),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      appTheme.isForced
+                          ? '本安装包已用编译参数锁定为「${appTheme.forcedLabel}」主题，此处不可切换。'
+                          : '浅色与深色两套配色都已适配全部页面，切换时颜色是渐变过渡的。',
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.4,
+                        color: context.c.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           _section('账号'),
           ListTile(
             dense: true,
             leading: Icon(
               _loggedIn ? Icons.check_circle : Icons.error_outline,
-              color: _loggedIn ? Colors.green : TrackerTheme.live,
+              color: _loggedIn ? context.c.success : context.c.live,
               size: 20,
             ),
             title: Text(_loggedIn ? 'B 站已登录' : 'B 站未登录'),
@@ -93,7 +145,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ListTile(
               dense: true,
               leading:
-                  const Icon(Icons.logout, size: 20, color: TrackerTheme.live),
+                  Icon(Icons.logout, size: 20, color: context.c.live),
               title: const Text('退出并清除 Cookie'),
               onTap: _logout,
             ),
@@ -167,10 +219,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: TextField(
                     controller: _ruleCtrl,
                     style: const TextStyle(fontSize: 12),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: '远端规则 JSON 地址（留空用内置）',
                       hintStyle: TextStyle(
-                          fontSize: 11, color: TrackerTheme.textSecondary),
+                          fontSize: 11, color: context.c.textSecondary),
                       isDense: true,
                     ),
                   ),
@@ -206,8 +258,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           ListTile(
             dense: true,
-            leading: const Icon(Icons.cancel_schedule_send,
-                size: 20, color: TrackerTheme.live),
+            leading: Icon(Icons.cancel_schedule_send,
+                size: 20, color: context.c.live),
             title: const Text('取消后台任务'),
             onTap: () async {
               await BackgroundService().cancelAll();
@@ -217,15 +269,15 @@ class _SettingsPageState extends State<SettingsPage> {
           _section('数据'),
           ListTile(
             dense: true,
-            leading: const Icon(Icons.delete_forever,
-                size: 20, color: TrackerTheme.live),
+            leading: Icon(Icons.delete_forever,
+                size: 20, color: context.c.live),
             title: const Text('清除所有本地数据'),
             subtitle: const Text('动态、直播记录、订阅与 Cookie 全部删除',
                 style: TextStyle(fontSize: 11)),
             onTap: _clearAll,
           ),
           _section('说明'),
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Text(
               '本工具使用你本人的 Cookie 直连平台接口，相当于你自己打开网页查看关注内容。'
@@ -233,7 +285,7 @@ class _SettingsPageState extends State<SettingsPage> {
               '使用本工具即表示你了解并自行承担违反平台服务条款的潜在风险。'
               '如遇到验证码或风控提示，请重新登录或降低抓取频率。',
               style: TextStyle(
-                  fontSize: 12, color: TrackerTheme.textSecondary, height: 1.5),
+                  fontSize: 12, color: context.c.textSecondary, height: 1.5),
             ),
           ),
         ],
@@ -245,7 +297,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
-        backgroundColor: TrackerTheme.surface,
+        backgroundColor: context.c.surface,
         title: const Text('退出登录'),
         content: const Text('将清除本机保存的 Cookie，已抓取的动态会保留。'),
         actions: <Widget>[
@@ -255,7 +307,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('确认', style: TextStyle(color: TrackerTheme.live)),
+            child: Text('确认', style: TextStyle(color: context.c.live)),
           ),
         ],
       ),
@@ -269,7 +321,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
-        backgroundColor: TrackerTheme.surface,
+        backgroundColor: context.c.surface,
         title: const Text('清除所有本地数据'),
         content: const Text('动态、直播记录、订阅列表和 Cookie 都会被删除，且无法恢复。'),
         actions: <Widget>[
@@ -280,7 +332,7 @@ class _SettingsPageState extends State<SettingsPage> {
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             child:
-                const Text('确认清除', style: TextStyle(color: TrackerTheme.live)),
+                Text('确认清除', style: TextStyle(color: context.c.live)),
           ),
         ],
       ),
@@ -306,16 +358,12 @@ class _SettingsPageState extends State<SettingsPage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _section(String title) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-        child: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: TrackerTheme.brand,
-          ),
-        ),
+  /// 分组标题统一走 SectionTitle（左侧带竖条的样式），
+  /// 换主题/调密度只需要改那一个组件。
+  Widget _section(String title) => SectionTitle(
+        title: title,
+        color: context.c.textSecondary,
+        padding: const EdgeInsets.fromLTRB(16, 22, 16, 6),
       );
 
   static String _sourceLabel(String s) {
