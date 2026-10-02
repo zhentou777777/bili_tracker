@@ -308,6 +308,250 @@ class BilibiliAdapter {
     return _upFromGeneric(Map<String, dynamic>.from(data), ep.itemMap);
   }
 
+  // ---------- 登录：扫码 + 同设备跳转 B 站 App 确认 ----------
+  //
+  // 为什么不用 WebView 加载登录页：
+  // `passport.bilibili.com/h5-app/passport/login` 是重前端页面，在 App 内嵌
+  // WebView 里经常白屏 / 控件点不动（同类第三方客户端也有同样反馈）。
+  // 而扫码登录只需要两个纯 JSON 接口，稳定得多，且天然支持
+  // 「同一台手机上直接跳到 B 站 App 点确认」，不用第二台设备来扫。
+
+  /// 申请登录二维码。
+  ///
+  /// 返回的 `url` 有两个用途：① 渲染成二维码给另一台设备扫；
+  /// ② 在本机直接打开 —— 那条链接是 `account.bilibili.com/.../scan-web`，
+  /// 装了 B 站 App 的手机上会被 App Links 接走、唤起 App 内的授权确认页。
+  Future<LoginQrSession> createLoginQr() async {
+    final LoginRule lg = _requireLoginRule();
+    final String url = _withQuery(
+      lg.qrGenerateUrl,
+      renderParams(lg.qrGenerateParams, const <String, String>{}),
+    );
+
+    final HttpResp resp = await _sender.get(
+      url,
+      headers: _browserHeaders('https://www.bilibili.com/'),
+    );
+    if (!resp.isOk) {
+      throw ApiException(-resp.status, 'HTTP ${resp.status}', statusCode: resp.status);
+    }
+
+    final Map<String, dynamic> json = _decodeObject(resp);
+    _throwIfApiError(json);
+
+    final LoginQrSession session = LoginQrSession(
+      qrcodeKey: (getByPath(json, lg.keyPath) ?? '').toString(),
+      url: (getByPath(json, lg.urlPath) ?? '').toString(),
+    );
+    if (!session.isValid) {
+      // 拿到结构但不完整 → 规则文件的解析路径很可能已经过时
+      throw const ApiException(
+        -1,
+        '登录二维码返回不完整（缺少 qrcode_key 或 url），请检查规则文件的 login 解析路径',
+      );
+    }
+    return session;
+  }
+
+  /// 轮询一次扫码状态。
+  ///
+  /// 状态码**只看 `login.status_path`（data.code）**：外层 `code` 恒为 0，
+  /// 仅代表 HTTP 层成功。只看外层会立刻误判成「登录成功」而 Cookie 是空的。
+  ///
+  /// 一旦确认成功，会依次尝试两个 Cookie 来源（顺序有意义）：
+  /// 1. 本次轮询响应自身的 `Set-Cookie`；
+  /// 2. 响应里的跨域回调地址 `data.url`，需带 Referer 且**禁止跟随 302**。
+  Future<LoginPollResult> pollLoginQr(String qrcodeKey) async {
+    final LoginRule lg = _requireLoginRule();
+    final String url = _withQuery(
+      lg.qrPollUrl,
+      renderParams(lg.qrPollParams, <String, String>{'qrcode_key': qrcodeKey}),
+    );
+
+    final HttpResp resp = await _sender.get(
+      url,
+      headers: _browserHeaders('https://www.bilibili.com/'),
+    );
+    if (!resp.isOk) {
+      throw ApiException(-resp.status, 'HTTP ${resp.status}', statusCode: resp.status);
+    }
+
+    final Map<String, dynamic> json = _decodeObject(resp);
+    _throwIfApiError(json);
+
+    final Object? rawStatus = getByPath(json, lg.statusPath);
+    final String code =
+        rawStatus is num ? rawStatus.toInt().toString() : (rawStatus ?? '').toString();
+
+    final LoginQrStatus status = statusFromCode(lg, code);
+    if (status != LoginQrStatus.success) {
+      return LoginPollResult(
+        status: status,
+        message: (getByPath(json, 'data.message') ?? json['message'] ?? '').toString(),
+      );
+    }
+
+    final String crossDomainUrl = (getByPath(json, lg.urlPath) ?? '').toString();
+    final Map<String, String> fromPoll = parseSetCookieHeaders(resp.setCookies);
+
+    Map<String, String> cookies = fromPoll;
+    if (!_hasAllRequiredCookies(fromPoll) && crossDomainUrl.isNotEmpty) {
+      final Map<String, String> fromCallback =
+          await _fetchCrossDomainCookies(crossDomainUrl);
+      // 轮询响应里的值优先（更新的下发），回调只用来补齐缺失项
+      cookies = <String, String>{...fromCallback, ...fromPoll};
+    }
+
+    return LoginPollResult(
+      status: LoginQrStatus.success,
+      message: (getByPath(json, 'data.message') ?? '').toString(),
+      crossDomainUrl: crossDomainUrl,
+      cookies: cookies,
+    );
+  }
+
+  /// 跟随跨域回调取 Cookie。
+  ///
+  /// 两个坑，缺一个就拿到空 Cookie（而且请求本身看起来完全正常）：
+  /// 1. **必须带 `Referer: https://www.bilibili.com/`** —— 不带会返回一个
+  ///    没有任何 `Set-Cookie` 的空 302；
+  /// 2. **必须 `followRedirects: false`** —— SESSDATA 就挂在第一跳 302 的
+  ///    响应头上，自动跟随重定向会把这一跳的响应头静默丢掉。
+  Future<Map<String, String>> _fetchCrossDomainCookies(String url) async {
+    final LoginRule lg = _requireLoginRule();
+    try {
+      final HttpResp resp = await _sender.get(
+        url,
+        headers: _browserHeaders(lg.crossDomainReferer),
+        followRedirects: false,
+      );
+      return parseSetCookieHeaders(resp.setCookies);
+    } catch (_) {
+      // 回调只是「补一条路」，失败不该把已经拿到的结果弄丢
+      return const <String, String>{};
+    }
+  }
+
+  bool _hasAllRequiredCookies(Map<String, String> cookies) {
+    for (final String k in _rule.requiredCookies) {
+      if ((cookies[k] ?? '').isEmpty) return false;
+    }
+    return _rule.requiredCookies.isNotEmpty;
+  }
+
+  LoginRule _requireLoginRule() {
+    final LoginRule lg = _rule.login;
+    if (lg.isEmpty) {
+      throw const ApiException(
+        -1,
+        '规则文件未配置扫码登录端点（login 段），请改用网页登录',
+      );
+    }
+    return lg;
+  }
+
+  /// 把扫码状态码映射成语义。规则表里没有的码一律 [LoginQrStatus.unknown]。
+  static LoginQrStatus statusFromCode(LoginRule lg, String code) {
+    switch (lg.statusMap[code]) {
+      case 'success':
+        return LoginQrStatus.success;
+      case 'scanned':
+        return LoginQrStatus.scanned;
+      case 'waiting':
+        return LoginQrStatus.waiting;
+      case 'expired':
+        return LoginQrStatus.expired;
+      default:
+        return LoginQrStatus.unknown;
+    }
+  }
+
+  /// 解析多行 `Set-Cookie` 原始值为 `name → value`。
+  ///
+  /// 只保留「有效下发」的项：
+  /// - `Max-Age<=0` 或 `Expires` 已是过去时间的是**删除指令**，不是下发；
+  ///   把它当 Cookie 存下来会让刚建立的登录态立刻失效；
+  /// - 值为空的一律丢弃，避免用一个空 SESSDATA 冒充登录成功。
+  static Map<String, String> parseSetCookieHeaders(List<String> raw) {
+    final Map<String, String> out = <String, String>{};
+    for (final String line in raw) {
+      final String? name = _cookieName(line);
+      if (name == null) continue;
+      final String value = _cookieValue(line);
+      if (value.isEmpty) continue;
+      if (_isDeletion(line)) continue;
+      out[name] = value;
+    }
+    return out;
+  }
+
+  static String? _cookieName(String line) {
+    final int eq = line.indexOf('=');
+    if (eq <= 0) return null;
+    final String name = line.substring(0, eq).trim();
+    return name.isEmpty ? null : name;
+  }
+
+  static String _cookieValue(String line) {
+    final String head = line.split(';').first;
+    final int eq = head.indexOf('=');
+    if (eq <= 0) return '';
+    return head.substring(eq + 1).trim();
+  }
+
+  static bool _isDeletion(String line) {
+    final List<String> parts = line.split(';');
+    for (final String attr in parts.skip(1)) {
+      final int i = attr.indexOf('=');
+      if (i <= 0) continue;
+      final String k = attr.substring(0, i).trim().toLowerCase();
+      final String v = attr.substring(i + 1).trim();
+      if (k == 'max-age') {
+        final int? n = int.tryParse(v);
+        if (n != null && n <= 0) return true;
+      } else if (k == 'expires') {
+        final DateTime? d = _tryParseHttpDate(v);
+        if (d != null && !d.isAfter(DateTime.now().toUtc())) return true;
+      }
+    }
+    return false;
+  }
+
+  /// 解析 HTTP 日期（RFC 1123，如 `Thu, 01 Jan 1970 00:00:00 GMT`）。
+  ///
+  /// Dart 的 `DateTime.tryParse` 对带星期名的格式支持不稳，因此补一条
+  /// 「只抠年份」的兜底：B 站用 `Expires` 表示删除时固定是 1970 年，
+  /// 早于 2000 一律视为已过期。
+  static DateTime? _tryParseHttpDate(String value) {
+    final DateTime? direct = DateTime.tryParse(value);
+    if (direct != null) return direct.toUtc();
+    final RegExpMatch? m = RegExp(r'\b(\d{4})\b').firstMatch(value);
+    final int? year = int.tryParse(m?.group(1) ?? '');
+    if (year == null) return null;
+    // 只拿到年份时取该年最后一天：宁可把「当年的过期时间」当成还没到，
+    // 也不要误判成删除指令而丢掉一个本来有效的 Cookie。
+    return DateTime.utc(year, 12, 31);
+  }
+
+  /// 拼查询串（与 `_request` 同一套编码规则，键排序 + percent-encode）。
+  static String _withQuery(String base, Map<String, String> params) {
+    if (params.isEmpty) return base;
+    final List<String> keys = params.keys.toList()..sort();
+    final String query = <String>[
+      for (final String k in keys)
+        '${Uri.encodeQueryComponent(k)}=${Uri.encodeQueryComponent(params[k]!)}',
+    ].join('&');
+    return '$base?$query';
+  }
+
+  /// 浏览器风格的请求头。登录接口在 passport 域名下，缺 UA/Referer 易被拦。
+  static Map<String, String> _browserHeaders(String referer) => <String, String>{
+        'User-Agent': kBilibiliUserAgent,
+        if (referer.isNotEmpty) 'Referer': referer,
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+      };
+
   // ---------- 内部实现 ----------
 
   EndpointRule _requireEndpoint(String name) {

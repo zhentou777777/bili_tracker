@@ -37,7 +37,14 @@ flutter build ipa                 # iOS（需先配好证书）
 > ⚠️ 注意：Flutter 的增量编译**可能漏判 Dart 源码变更**，出现「只编译几秒就显示 Built …apk」的
 > 假成功（包里还是旧代码）。判断是否真的出新包：**看 APK 文件的修改时间**。
 
-首次运行请先到「设置 → 去登录」，用 WebView 登录 B 站账号，再回「今日」页点右上角刷新。
+首次运行请先登录 B 站账号：**扫码登录 + 一键跳转 B 站 App 确认**（推荐），
+或用登录页右上角的「网页登录」备用入口。登录后回「今日」页点右上角刷新。
+
+> 登录链路说明：申请二维码 → 每 2 秒轮询状态 → 确认后取 Cookie。
+> 二维码链接本身就是 B 站的授权页（`account.bilibili.com/h5/account-h5/auth/scan-web`），
+> 手机上装了 B 站 App 时用系统打开它会被 App Links 接管、**直接进 App 的确认页**，
+> 所以同一台设备也能完成登录，不必找第二台手机来扫。
+> 详见 `登录方式改造说明.md`。
 
 **首次构建前注意**：
 
@@ -58,12 +65,13 @@ lib/
 ├── core/
 │   ├── md5.dart         纯 Dart MD5（WBI 签名依赖，零依赖以便探针验证）
 │   ├── wbi.dart         B 站 WBI 签名 + mixin_key 缓存
-│   ├── rules.dart       规则表解析（端点/参数/解析路径全外置）
+│   ├── rules.dart       规则表解析（端点/参数/解析路径/登录规则全外置）
 │   ├── http.dart        HTTP 抽象 + ApiException（风控码识别）
+│   │                    含 setCookies 多行原始值与 followRedirects 开关（登录回调需要）
 │   └── dio_sender.dart  Dio 实现 + Cookie Jar 自动维护设备指纹
 ├── platform/
-│   ├── models.dart      跨平台领域模型（含 WatchedLive：最近观看的直播记录）
-│   └── bilibili.dart    B 站适配器（关注/动态/投稿/直播/用户信息/观看历史）
+│   ├── models.dart      跨平台领域模型（含 WatchedLive、登录相关模型）
+│   └── bilibili.dart    B 站适配器（关注/动态/投稿/直播/用户信息/观看历史/扫码登录）
 ├── data/db.dart         SQLite 数据层（手写 SQL，无代码生成）
 ├── service/
 │   ├── auth_service.dart   Cookie 安全存储（Keystore/Keychain）与失效检测
@@ -73,10 +81,13 @@ lib/
 │   ├── rules_service.dart  规则加载（缓存与内置取版本更高者）+ 远端覆盖
 │   └── app_context.dart    依赖装配
 └── ui/                  深色高密度 UI（今日/日历/UP主/考古/设置）
+    └── login_page.dart   扫码登录 + 同设备跳转 B 站 App 确认
+                          （内含 WebLoginPage：原 WebView 登录，保留为备用路径）
 
-assets/rules/platforms.json   平台接口规则表
-tools/probe.dart              CLI 探针（真实接口验证）
+assets/rules/platforms.json   平台接口规则表（含 login 段）
+tools/probe.dart              CLI 探针（真实接口验证，40 项）
 test/dynamic_parser_test.dart 动态/观看历史解析单元测试（离线样本，17 项）
+test/login_parser_test.dart   扫码登录状态码映射 + Set-Cookie 解析（离线样本，23 项）
 server/worker.js              Cloudflare Worker 推送中继（第二阶段）
 ```
 
@@ -94,6 +105,13 @@ server/worker.js              Cloudflare Worker 推送中继（第二阶段）
 
 **⑤ 「最近观看的直播」不能用关注列表代替。** 关注列表接口拿不到「看过谁」的信号。正确来源是观看历史 `x/web-interface/history/cursor?type=live`（需登录），每条的 `author_mid` 就是主播 UID —— 这是「自动追更最近观看直播的已关注主播」的数据源。
 
+**⑥ 登录不用 WebView，改用「扫码 + 同设备跳转」。** 内嵌 WebView 加载 B 站登录页容易白屏、控件点不动。
+改用两个纯 JSON 接口（`qrcode/generate` + `qrcode/poll`）走扫码链路；而二维码链接本身就是 B 站的授权页，
+手机用系统打开它会被 App Links 接走、**直接进 B 站 App 的确认页**，所以同一台设备也能完成登录。
+注意 `/qrcode/poll` 有**两层 `code`**：外层恒为 0，真实扫码状态在 `data.code`（86101/86090/86038/0），
+只看外层会在第一次轮询就误判成功。B 站**官方**的跳转 App 授权 OAuth 不可用（需企业资质，且换不到 SESSDATA）。
+详见 `登录方式改造说明.md`。
+
 ## 5. 核心逻辑验证结果
 
 `tools/probe.dart` 不依赖 Flutter，直接打真实接口：
@@ -104,23 +122,28 @@ dart tools/probe.dart
 BILI_COOKIE='SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx' dart tools/probe.dart
 ```
 
-当前实测输出（30 项全通过）：
+当前实测输出（40 项全通过）：
 
 ```
 [1] MD5 实现自检                 5/5 通过（RFC 1321 向量 + 中文）
 [2] 表单编码对齐 Python quote_plus  4/4 通过
-[3] 规则文件加载                 version=4，7 个端点（含动态端点存活断言）
+[3] 规则文件加载                 version=5，7 个端点 + 登录端点与状态码映射断言
 [4] WBI 密钥获取                 mixin_key=ea1db124af3c7062474693fa704f4ff8
 [5] WBI 签名串                   ✅ 跨语言一致性：Dart 与 Python 算出同一个 w_rid
 [6] 直播状态接口（公开）          解析出 2 条，uid=672328094 嘉然今天吃什么 room=22637261
 [7] Cookie 失效检测              正确识别 -101 未登录；动态端点存活探测（404 直接判失败）
 [8] 新版动态解析（离线样本）      9 项：视频/图文/纯文字/转发/专栏/直播/通用卡片 + 转发折入原动态 + 缺 id 防脏数据
 [9] 最近观看直播解析（离线样本）  3 项：完整字段 / uri 兜底取房间号 / 缺 author_mid 丢弃
+[10] 扫码登录链路（真实网络）     申请二维码 + 授权页地址 + fresh key 轮询必须回「未扫码」
+[11] Set-Cookie 解析（离线样本）  多行不拼接；Max-Age=0 / Expires 1970 / 空值 一律视为删除指令
 ```
 
 第 5 项是关键：探针会调 Python 独立实现一遍签名再比对 `w_rid`，确认不是自说自话、也不会因为 URL 编码大小写差异踩坑。
 
-第 8、9 项的样本字段全部取自真实接口响应（2026-10 实测），做成离线样本是为了不依赖登录态、不受风控抖动影响，可以每次都跑。
+第 8、9、11 项的样本字段全部取自真实接口响应（2026-10 实测），做成离线样本是为了不依赖登录态、不受风控抖动影响，可以每次都跑。
+
+第 10 项虽然打真实网络，但**不产生任何副作用**（不登录、不写数据），所以可以随时跑；它盯住两件事：
+授权页地址没被 B 站改掉（改了「同设备跳转 App」就会失效）、以及**未扫码时绝不能误判成登录成功**。
 
 ## 6. 规则文件
 
@@ -160,6 +183,13 @@ Worker 提供三个能力：`GET /rules` 下发规则、`POST /push` 转发 FCM/
   该轮自动追更只跳过、不影响正常抓取（详情见 `动态修复与自动追更策略说明.md`）。
 - **平台接口会整条下线**：本次已遇到一次（动态接口 404）。规则文件外置就是为了少发版，
   但**改完必须把 `version` 加 1**，否则旧缓存会压住新规则、修复静默失效。
+- **「同设备跳转 B 站 App」依赖两件外部条件**：手机上装了 B 站 App，且 B 站没改掉授权页地址。
+  前者缺失时登录页会自动降级为「复制链接到剪贴板」；后者已被探针第 [10] 项盯住（地址一变就报警）。
+  真机是否真的被 App Links 接管**尚未验证**，需要你在装了 B 站 App 的手机上试一次。
+- **扫码确认后的 Cookie 获取有两条路**（轮询响应自身 / 跨域回调补齐），跨域回调**必须带 Referer
+  且禁止自动跟随 302**，否则会拿到空 Cookie 而请求看起来完全正常。两条路都已在代码里实现。
+- **登录链路没有端到端自动化测试**：真实扫码必须由人完成。已自动化的是
+  「申请二维码 → 状态码判定 → Set-Cookie 解析」这三段（探针 + 单元测试）。
 
 ## 9. 免责声明
 

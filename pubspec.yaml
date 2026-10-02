@@ -40,6 +40,13 @@ dependencies:
   shared_preferences: ^2.2.2
   url_launcher: ^6.3.0
 
+  # 扫码登录要渲染二维码。选它的理由：纯 Dart 实现（只依赖 qr 包），
+  # **不含任何原生代码**，不会给 Gradle/NDK 引入构建风险 ——
+  # 与当初把 workmanager 换掉是同一套判断标准。
+  # 默认前景色写死为纯黑（PrettyQrSmoothSymbol.color = 0xFF000000），
+  # 不受本项目深色主题影响，配白底卡片即可扫。
+  pretty_qr_code: ^3.6.0
+
 # workmanager 0.9.x 官方打包缺陷：
 # interface 0.9.4 给 registerOneOffTask/registerPeriodicTask 加了 foregroundServiceConfig 参数，
 # 但 apple 0.9.4 的覆写未同步（缺该参数），任何项目解析到 interface 0.9.4 都会编译失败。

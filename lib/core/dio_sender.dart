@@ -101,7 +101,11 @@ class DioHttpSender implements HttpSender {
   }
 
   @override
-  Future<HttpResp> get(String url, {Map<String, String>? headers}) async {
+  Future<HttpResp> get(
+    String url, {
+    Map<String, String>? headers,
+    bool followRedirects = true,
+  }) async {
     final Uri uri = Uri.parse(url);
 
     // jar 指纹 + 用户 Cookie，用户字段优先
@@ -120,13 +124,39 @@ class DioHttpSender implements HttpSender {
 
     final Response<dynamic> resp = await _dio.get<dynamic>(
       url,
-      options: Options(responseType: ResponseType.plain, headers: h),
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: h,
+        followRedirects: followRedirects,
+        // 不跟随重定向时，302 本身不是错误，必须放行，否则拿不到那一跳的响应头。
+        //
+        // 顺带修正一处历史不一致：Dio 默认对非 2xx 抛 DioException，于是 412
+        // 风控会以 DioException 抛出，`BilibiliAdapter._request` 里那句
+        // `if (!resp.isOk) throw ApiException(-412)` 永远走不到，
+        // ApiException.isRiskControl 也就失效了。这里统一放行，
+        // 由调用方按 status 判断，语义回到设计时的样子。
+        validateStatus: (_) => true,
+      ),
     );
 
     return HttpResp(
       status: resp.statusCode ?? 0,
       body: resp.data?.toString() ?? '',
+      setCookies: _setCookiesOf(resp),
     );
+  }
+
+  /// 取出响应里的 `Set-Cookie` 多行原始值。
+  ///
+  /// Dio 把响应头归一到 `Map<String, List<String>>`，`set-cookie` 天然是多值，
+  /// 这里直接把整个 List 原样带出去，不做任何拼接。
+  static List<String> _setCookiesOf(Response<dynamic> resp) {
+    final List<String>? raw = resp.headers.map['set-cookie'];
+    if (raw == null || raw.isEmpty) return const <String>[];
+    return <String>[
+      for (final String v in raw)
+        if (v.trim().isNotEmpty) v.trim(),
+    ];
   }
 
   static Map<String, String> _parseCookieHeader(String header) {

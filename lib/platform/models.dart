@@ -292,3 +292,71 @@ class LiveSession {
         'peak_online': peakOnline,
       };
 }
+
+/// 扫码登录状态。
+///
+/// 语义名与规则文件 `login.status_map` 的取值一一对应，
+/// 状态码本身不写死在代码里 —— 它属于「接口随时会变」的那一类。
+enum LoginQrStatus {
+  /// 86101 还没人扫
+  waiting,
+
+  /// 86090 已扫码，等 App 里点「确认」
+  scanned,
+
+  /// 86038 二维码超时（B 站是 180 秒），必须重新申请
+  expired,
+
+  /// 0 已确认，Cookie 已下发
+  success,
+
+  /// 规则表里没登记的码，保持原样不猜
+  unknown,
+}
+
+/// 申请到的一次登录二维码。
+class LoginQrSession {
+  const LoginQrSession({required this.qrcodeKey, required this.url});
+
+  final String qrcodeKey;
+
+  /// 二维码内容，同时也是「同设备跳转授权」的目标地址
+  /// （`account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=...`）。
+  ///
+  /// 手机上装了 B 站 App 时，用系统打开这个地址会被 App Links 接管、
+  /// 直接唤起 B 站 App 的授权确认页 —— 用户点一下「确认」即可，
+  /// 不需要第二台设备来扫码。
+  final String url;
+
+  bool get isValid => qrcodeKey.isNotEmpty && url.isNotEmpty;
+}
+
+/// 一次轮询的结果。
+class LoginPollResult {
+  const LoginPollResult({
+    required this.status,
+    this.message = '',
+    this.crossDomainUrl = '',
+    this.cookies = const <String, String>{},
+  });
+
+  final LoginQrStatus status;
+
+  /// 接口返回的原始状态文案（如「未扫码」），用于界面兜底显示。
+  final String message;
+
+  /// 登录成功时的跨域回调地址。
+  ///
+  /// **它不是「带 Cookie 的链接」**：直接 GET 它才会在 302 响应头里下发
+  /// SESSDATA 等 Cookie，且必须带 Referer、必须禁止自动跟随重定向。
+  final String crossDomainUrl;
+
+  /// `status == success` 时解析出的 Cookie（含 HttpOnly 的 SESSDATA）。
+  final Map<String, String> cookies;
+
+  bool get isSuccess => status == LoginQrStatus.success;
+
+  /// 成功但没拿到 Cookie —— 属于「看起来成功、实际登不上」的坏状态，
+  /// 上层必须显式报错，不能静默当成登录完成。
+  bool get isSuccessWithoutCookie => isSuccess && cookies.isEmpty;
+}

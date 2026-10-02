@@ -28,15 +28,27 @@ import '../lib/platform/models.dart';
 /// dart:io 版请求器，探针专用。
 class IoHttpSender implements HttpSender {
   @override
-  Future<HttpResp> get(String url, {Map<String, String>? headers}) async {
+  Future<HttpResp> get(
+    String url, {
+    Map<String, String>? headers,
+    bool followRedirects = true,
+  }) async {
     final HttpClient client = HttpClient();
     try {
       final HttpClientRequest req = await client.getUrl(Uri.parse(url));
-      req.followRedirects = true;
+      req.followRedirects = followRedirects;
       headers?.forEach((String k, String v) => req.headers.set(k, v));
       final HttpClientResponse resp = await req.close();
       final String body = await resp.transform(utf8.decoder).join();
-      return HttpResp(status: resp.statusCode, body: body);
+      // dart:io 把多行 Set-Cookie 收在同一个 key 下，且**顺序保留**，
+      // 这里原样带走，不做拼接
+      final List<String> setCookies =
+          resp.headers[HttpHeaders.setCookieHeader] ?? const <String>[];
+      return HttpResp(
+        status: resp.statusCode,
+        body: body,
+        setCookies: setCookies,
+      );
     } finally {
       client.close();
     }
@@ -112,6 +124,27 @@ Future<void> main(List<String> args) async {
       ok('观看历史端点', liveHistUrl);
     } else {
       fail('观看历史端点', '缺失或地址不对：$liveHistUrl');
+    }
+    // 扫码登录端点也必须配齐，否则 App 会退回 WebView 登录（易白屏）
+    final LoginRule lr = bili.login;
+    if (lr.isEmpty) {
+      fail('登录端点', '规则文件缺少 login 段，扫码登录不可用');
+    } else {
+      ok('登录端点', '${lr.qrGenerateUrl}  +  ${lr.qrPollUrl}');
+      if (lr.qrGenerateUrl.contains('/qrcode/generate') &&
+          lr.qrPollUrl.contains('/qrcode/poll')) {
+        ok('登录端点形状', 'generate / poll 都在');
+      } else {
+        fail('登录端点形状', '地址不像扫码登录接口');
+      }
+      if (lr.statusMap['0'] == 'success' &&
+          lr.statusMap['86101'] == 'waiting' &&
+          lr.statusMap['86090'] == 'scanned' &&
+          lr.statusMap['86038'] == 'expired') {
+        ok('扫码状态码映射', lr.statusMap.entries.map((MapEntry<String, String> e) => '${e.key}=${e.value}').join(' '));
+      } else {
+        fail('扫码状态码映射', '四个码没配全：${lr.statusMap}');
+      }
     }
   } catch (e) {
     fail('规则解析', '$e');
@@ -277,10 +310,90 @@ Future<void> main(List<String> args) async {
   print('\n[9] 最近观看直播解析（离线样本）');
   _testLiveHistoryParsing();
 
+  // 10. 扫码登录链路（真实网络：只跑「申请二维码 + 未扫码轮询」这两步，
+  //     这两步不需要任何人参与，也不会产生任何副作用）
+  print('\n[10] 扫码登录链路（真实网络）');
+  await _testLoginFlow(probeAdapter);
+
+  // 11. Set-Cookie 解析（离线样本）
+  print('\n[11] Set-Cookie 解析（离线样本）');
+  _testSetCookieParsing();
+
   print('\n${'═' * 64}');
   print(' 通过 $_passed  失败 $_failed');
   print('═' * 64);
   if (_failed > 0) exitCode = 1;
+}
+
+/// 扫码登录链路：申请二维码 → 拿 fresh key 轮询一次（必然「未扫码」）。
+Future<void> _testLoginFlow(BilibiliAdapter adapter) async {
+  LoginQrSession session;
+  try {
+    session = await adapter.createLoginQr();
+  } catch (e) {
+    fail('申请登录二维码', '$e');
+    return;
+  }
+
+  ok('申请登录二维码', 'qrcode_key=${session.qrcodeKey}');
+
+  if (session.qrcodeKey.length == 32) {
+    ok('qrcode_key 长度', '32 位，符合预期');
+  } else {
+    fail('qrcode_key 长度', '实际 ${session.qrcodeKey.length} 位：${session.qrcodeKey}');
+  }
+
+  // 这条 url 是整个「跳转 App 授权」的关键：它就是 B 站的授权页，
+  // 手机上装了 B 站 App 时会被 App Links 接走。一旦 B 站改了这个地址，
+  // 同设备跳转就会失效 —— 所以必须盯住它。
+  if (session.url.contains('account-h5/auth/scan-web') &&
+      session.url.contains('qrcode_key=${session.qrcodeKey}')) {
+    ok('授权页地址', session.url.split('?').first);
+  } else {
+    fail('授权页地址', '不再是 scan-web 授权页：${session.url}');
+  }
+
+  try {
+    final LoginPollResult r = await adapter.pollLoginQr(session.qrcodeKey);
+    if (r.status == LoginQrStatus.waiting) {
+      ok('轮询 fresh key', '尚未扫码，返回 waiting（原文案：${r.message}）');
+    } else {
+      fail('轮询 fresh key', '期望 waiting，实际 ${r.status}（${r.message}）');
+    }
+    if (!r.isSuccess) {
+      ok('未扫码不会误判成功', 'data.code 与外层 code 已正确区分');
+    } else {
+      fail('未扫码不会误判成功', '竟然返回了 success');
+    }
+  } catch (e) {
+    fail('轮询 fresh key', '$e');
+  }
+}
+
+/// Set-Cookie 解析：重点是别把「删除指令」当成下发。
+void _testSetCookieParsing() {
+  final Map<String, String> parsed = BilibiliAdapter.parseSetCookieHeaders(<String>[
+    'SESSDATA=abc%2Cdef; Path=/; Domain=.bilibili.com; HttpOnly',
+    'bili_jct=csrf; Path=/',
+    'DedeUserID=42; Path=/',
+  ]);
+  if (parsed.length == 3 && parsed['SESSDATA'] == 'abc%2Cdef') {
+    ok('解析多行 Set-Cookie', parsed.keys.join(','));
+  } else {
+    fail('解析多行 Set-Cookie', '$parsed');
+  }
+
+  final Map<String, String> withDeletions = BilibiliAdapter.parseSetCookieHeaders(<String>[
+    'SESSDATA=; Path=/; Max-Age=0',
+    'buvid3=; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    'PVID=; Path=/',
+    'keepme=ok; Path=/',
+  ]);
+  if (withDeletions.length == 1 && withDeletions['keepme'] == 'ok') {
+    ok('剔除删除指令', 'Max-Age=0 / Expires 1970 / 空值 全部被丢弃');
+  } else {
+    fail('剔除删除指令', '$withDeletions');
+  }
 }
 
 void _checkMd5(String input, String expected) {

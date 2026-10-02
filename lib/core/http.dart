@@ -5,18 +5,42 @@ library http_core;
 
 /// 请求结果。
 class HttpResp {
-  const HttpResp({required this.status, required this.body, this.headers = const <String, String>{}});
+  const HttpResp({
+    required this.status,
+    required this.body,
+    this.headers = const <String, String>{},
+    this.setCookies = const <String>[],
+  });
 
   final int status;
   final String body;
   final Map<String, String> headers;
+
+  /// 原始 `Set-Cookie` 头，**每一行是独立的**。
+  ///
+  /// 不能合并成一个字符串：浏览器/HTTP 库普遍不允许把多个 Set-Cookie 拼起来，
+  /// 一旦拼接，后面每个 Cookie 的属性（Path/Domain/HttpOnly）都会被归到第一个
+  /// Cookie 名下，解析必然出错。
+  ///
+  /// 登录链路依赖它：扫码成功后 SESSDATA / bili_jct / DedeUserID 就是从这里下发的，
+  /// 而 SESSDATA 是 HttpOnly，JS 与 WebView 的 `document.cookie` 都读不到。
+  final List<String> setCookies;
 
   bool get isOk => status >= 200 && status < 300;
 }
 
 /// 统一的网络出口。
 abstract class HttpSender {
-  Future<HttpResp> get(String url, {Map<String, String>? headers});
+  /// [followRedirects] 默认 true。
+  ///
+  /// 登录回调（crossDomain）必须传 false：SESSDATA 挂在**第一跳 302** 的
+  /// Set-Cookie 上，自动跟随重定向会让这一跳的响应头被静默丢弃，
+  /// 表现为「扫码成功但 Cookie 为空」。
+  Future<HttpResp> get(
+    String url, {
+    Map<String, String>? headers,
+    bool followRedirects = true,
+  });
 }
 
 /// 平台接口返回的业务错误 / 风控。

@@ -91,6 +91,91 @@ class EndpointRule {
   }
 }
 
+/// 登录规则：端点、解析路径、状态码映射全部外置。
+///
+/// B 站的登录接口域名是 `passport.bilibili.com`，与业务接口
+/// `api.bilibili.com` 不同源。把它一并外置的理由与业务接口相同：
+/// 登录链路是「接口一变 App 就登不上」的高危区，改 JSON 比发版快得多。
+class LoginRule {
+  const LoginRule({
+    required this.mode,
+    required this.qrGenerateUrl,
+    required this.qrGenerateParams,
+    required this.qrPollUrl,
+    required this.qrPollParams,
+    required this.crossDomainReferer,
+    required this.pollIntervalMs,
+    required this.qrTtlSeconds,
+    required this.urlPath,
+    required this.keyPath,
+    required this.statusPath,
+    required this.statusMap,
+    required this.note,
+  });
+
+  final String mode;
+  final String qrGenerateUrl;
+  final Map<String, String> qrGenerateParams;
+  final String qrPollUrl;
+  final Map<String, String> qrPollParams;
+
+  /// 跟随跨域回调时必须带的 Referer。不带会得到一个**没有任何 Set-Cookie
+  /// 的空 302** —— 请求看起来完全成功，Cookie 却是空的。
+  final String crossDomainReferer;
+
+  final int pollIntervalMs;
+
+  /// 二维码有效期（秒）。B 站是 180 秒，超时后必须重新申请。
+  final int qrTtlSeconds;
+
+  final String urlPath;
+  final String keyPath;
+  final String statusPath;
+
+  /// 扫码状态码 → 语义名（success / scanned / waiting / expired）。
+  final Map<String, String> statusMap;
+  final String note;
+
+  bool get isEmpty => qrGenerateUrl.isEmpty || qrPollUrl.isEmpty;
+
+  /// 未配置 login 段时的占位值（[isEmpty] 为 true，调用方应回退到 WebView 登录）。
+  const LoginRule.empty()
+      : mode = '',
+        qrGenerateUrl = '',
+        qrGenerateParams = const <String, String>{},
+        qrPollUrl = '',
+        qrPollParams = const <String, String>{},
+        crossDomainReferer = '',
+        pollIntervalMs = 2000,
+        qrTtlSeconds = 180,
+        urlPath = 'data.url',
+        keyPath = 'data.qrcode_key',
+        statusPath = 'data.code',
+        statusMap = const <String, String>{},
+        note = '';
+
+  factory LoginRule.fromJson(Map<String, dynamic> json) => LoginRule(
+        mode: json['mode']?.toString() ?? '',
+        qrGenerateUrl: json['qr_generate_url']?.toString() ?? '',
+        qrGenerateParams: EndpointRule._stringMap(json['qr_generate_params']),
+        qrPollUrl: json['qr_poll_url']?.toString() ?? '',
+        qrPollParams: EndpointRule._stringMap(json['qr_poll_params']),
+        crossDomainReferer: json['cross_domain_referer']?.toString() ?? '',
+        pollIntervalMs: _intOf(json['poll_interval_ms'], 2000),
+        qrTtlSeconds: _intOf(json['qr_ttl_seconds'], 180),
+        urlPath: json['url_path']?.toString() ?? 'data.url',
+        keyPath: json['key_path']?.toString() ?? 'data.qrcode_key',
+        statusPath: json['status_path']?.toString() ?? 'data.code',
+        statusMap: EndpointRule._stringMap(json['status_map']),
+        note: json['note']?.toString() ?? '',
+      );
+
+  static int _intOf(Object? raw, int fallback) {
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString() ?? '') ?? fallback;
+  }
+}
+
 /// 平台规则。
 class PlatformRule {
   const PlatformRule({
@@ -105,6 +190,7 @@ class PlatformRule {
     required this.deviceCookies,
     required this.selfUidCookie,
     required this.endpoints,
+    this.login = const LoginRule.empty(),
   });
 
   final String id;
@@ -121,6 +207,9 @@ class PlatformRule {
   final String selfUidCookie;
   final Map<String, EndpointRule> endpoints;
 
+  /// 扫码 / 跳转授权登录规则；未配置时 [LoginRule.isEmpty] 为 true。
+  final LoginRule login;
+
   EndpointRule? endpoint(String name) => endpoints[name];
 
   factory PlatformRule.fromJson(Map<String, dynamic> json) => PlatformRule(
@@ -134,6 +223,11 @@ class PlatformRule {
         requiredCookies: _stringList(json['required_cookies']),
         deviceCookies: _stringList(json['device_cookies']),
         selfUidCookie: json['self_uid_cookie']?.toString() ?? '',
+        login: json['login'] is Map
+            ? LoginRule.fromJson(
+                Map<String, dynamic>.from(json['login'] as Map),
+              )
+            : const LoginRule.empty(),
         endpoints: <String, EndpointRule>{
           if (json['endpoints'] is Map)
             for (final MapEntry<dynamic, dynamic> e

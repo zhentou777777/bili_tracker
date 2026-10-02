@@ -1,6 +1,6 @@
 {
-  "version": 4,
-  "updated_at": "2026-10-02T00:00:00Z",
+  "version": 5,
+  "updated_at": "2026-10-02T16:00:00Z",
   "notes": "接口规则表。App 内置此文件作为兜底，启动时可拉取远端同名文件覆盖，接口变动无需发版。",
   "platforms": [
     {
@@ -15,6 +15,27 @@
       "device_cookies": ["buvid3", "buvid4", "b_nut"],
       "self_uid_cookie": "DedeUserID",
       "self_check_endpoint": "nav",
+      "login": {
+        "mode": "qr_deeplink",
+        "note": "扫码登录 + 同设备一键跳转 B 站 App 确认。旧 WebView 登录保留为兜底入口（见 login_url）。",
+        "qr_generate_url": "https://passport.bilibili.com/x/passport-login/web/qrcode/generate",
+        "qr_generate_params": { "source": "main-fe-header", "go_url": "https://www.bilibili.com/" },
+        "qr_poll_url": "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
+        "qr_poll_params": { "qrcode_key": "{qrcode_key}", "source": "main-fe-header" },
+        "cross_domain_referer": "https://www.bilibili.com/",
+        "poll_interval_ms": 2000,
+        "qr_ttl_seconds": 180,
+        "url_path": "data.url",
+        "key_path": "data.qrcode_key",
+        "status_path": "data.code",
+        "status_map": {
+          "0": "success",
+          "86090": "scanned",
+          "86101": "waiting",
+          "86038": "expired"
+        },
+        "note_status": "外层 code 恒为 0（仅代表 HTTP 层成功），扫码状态一律看 status_path。这是最常见的翻车点：只看外层会立刻判定「登录成功」但 Cookie 为空。"
+      },
       "endpoints": {
         "nav": {
           "url": "https://api.bilibili.com/x/web-interface/nav",
