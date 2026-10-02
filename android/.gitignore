@@ -1,8 +1,17 @@
-gradle-wrapper.jar
+# 【本项目对 Flutter 模板默认值的三处偏离】wrapper 故意入库。
+# 模板默认忽略下面这三行，本项目改为提交，原因：
+#   1. 本仓库明确要求「不要再跑 flutter create」（跑了会把 minSdk 从 23 退回 21、
+#      并生成 .kts 与手写配置冲突）。若 wrapper 不入库，全新 clone 就没有 gradlew，
+#      只能指望 flutter build 临时注入，多一层不确定。
+#   2. 临时注入时可能覆盖 gradle-wrapper.properties —— 那里面写的是腾讯云镜像
+#      （国内下载速度差 7 倍），被覆盖后首次构建会非常慢。
+#   3. Gradle 官方文档本身也建议把 wrapper 提交进版本库。
+# 想恢复模板行为：去掉下面三行的注释、执行 git rm --cached 即可。
+# gradle-wrapper.jar
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
+# /gradlew
+# /gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/

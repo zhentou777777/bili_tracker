@@ -1,24 +1,35 @@
+# ---- Dart / Flutter ----
 .dart_tool/
 .packages
 .pub-cache/
 build/
+rebuilt/
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# ---- 本机配置（绝不能入库）----
 android/local.properties
+key.properties
+**/*.keystore
+**/*.jks
+
+# ---- 构建缓存 ----
 android/.gradle/
 android/.kotlin/
+android/.cxx/
 android/app/debug/
 android/app/profile/
 android/app/release/
-*.iml
+
+# ---- IDE ----
 .idea/
+*.iml
 .DS_Store
 
-# BUILD_APK.bat 运行时的 android 配置临时备份
-android_backup/
-
-# 编译/自检产物
-build/
-rebuilt/
+# ---- 脚本产出的日志 ----
 check_result.txt
 rebuild_result.txt
+build_theme_result.txt
+
+# ---- BUILD_APK.bat 运行时的 android 配置临时备份 ----
+android_backup/
