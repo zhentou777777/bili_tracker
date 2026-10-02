@@ -17,9 +17,11 @@ Flutter 实现，**客户端 Cookie 直连**架构：所有平台请求都在 Ap
 | NDK | **27.0.12077973** | 8 个插件的共同要求（见 `android/app/build.gradle.kts`） |
 
 > 接手后的实际状态：项目**已在本机编译出可安装的 APK**，`flutter analyze` **0 问题**（已用
-> `tools/analyzer_runner` 复核：32 个文件、error/warning/info 全 0）。
-> **单元测试**共 43 个用例；最近一次自检（15:58）有 2 个失败，**已修复但尚未复跑确认**
-> （详见 `审计报告.md` 与 `交接文档.md` 阶段 H）。
+> `tools/analyzer_runner` 复核：**34 个文件**、error/warning/info 全 0）。
+> **单元测试**共 **56 个用例**（阶段 H 复验时 43 项全通过；阶段 J 又新增 13 项，
+> **这 13 项尚未跑过 `flutter test`** —— 本机沙箱跑不了，已改用临时脚本在纯 Dart 下
+> 验证其判定逻辑 16/16 通过）。
+> ⚠️ 阶段 J 只改了 Dart 代码、未新增依赖，**最新 APK 不含它**，需重新出包。
 > **想快速了解现状：读 `交接总结.md`**（入口文档）。
 > 排障全过程、每个问题的根因、24 条坑清单与回退方法，见 **`交接文档.md`（详细权威版）**。
 
@@ -72,6 +74,7 @@ lib/
 │   ├── rules.dart       规则表解析（端点/参数/解析路径/登录规则全外置）
 │   ├── http.dart        HTTP 抽象 + ApiException（风控码识别）
 │   │                    含 setCookies 多行原始值与 followRedirects 开关（登录回调需要）
+│   ├── danmaku_link.dart 弹幕姬地址规则（纯 Dart、无 Flutter 依赖，可离线测试）
 │   └── dio_sender.dart  Dio 实现 + Cookie Jar 自动维护设备指纹
 ├── platform/
 │   ├── models.dart      跨平台领域模型（含 WatchedLive、登录相关模型）
@@ -96,6 +99,7 @@ tools/analyzer_runner/        独立小包：绕开沙箱限制跑静态分析�
 test/widget_test.dart         主题与共用组件测试（13 项）
 test/dynamic_parser_test.dart 动态/观看历史解析单元测试（离线样本，12 项）
 test/login_parser_test.dart   扫码登录状态码映射 + Set-Cookie 解析（离线样本，18 项）
+test/danmaku_link_test.dart   弹幕姬地址判定（离线样本，13 项；纯逻辑，不依赖 Flutter）
 server/worker.js              Cloudflare Worker 推送中继（第二阶段）
 docs/archive/                 已归档的历史文档（仅作过程证据，见其 README.md）
 ```
@@ -175,7 +179,7 @@ BILI_COOKIE='SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx' dart tools/probe.dart
 cd tools/analyzer_runner
 dart pub get
 dart run bin/analyze.dart "D:/fan club/bili_tracker"
-# 已分析 32 个文件
+# 已分析 34 个文件
 # error 0  warning 0  info 0  →  合计 0
 ```
 

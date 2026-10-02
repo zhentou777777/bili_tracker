@@ -19,7 +19,7 @@ Future<bool> openBilibiliContent(String webUrl, {bool preferApp = true}) async {
 
   if (preferApp) {
     final String? deep = bilibiliDeepLink(webUrl);
-    if (deep != null && await _launch(deep, customScheme: true)) return true;
+    if (deep != null && await _launch(deep)) return true;
   }
   return _launch(webUrl);
 }
@@ -27,31 +27,26 @@ Future<bool> openBilibiliContent(String webUrl, {bool preferApp = true}) async {
 /// 唤起一个自定义 scheme（例如 `bilibili://live/123`）。
 ///
 /// 单独暴露出来，给「弹幕姬」这类非 B 站 App 的深链用。
-Future<bool> openExternal(String url) => _launch(url, customScheme: _isCustomScheme(url));
+Future<bool> openExternal(String url) => _launch(url);
 
 /// 把链接复制到剪贴板（两条路都失败时的兜底）。
 Future<void> copyLink(String url) => Clipboard.setData(ClipboardData(text: url));
 
-bool _isCustomScheme(String url) {
-  final Uri? uri = Uri.tryParse(url);
-  if (uri == null) return false;
-  return uri.scheme != 'http' && uri.scheme != 'https';
-}
-
-/// [customScheme] 为 true 时**不做 `canLaunchUrl` 预检**。
+/// 发起一次跳转。**两条分支都不做 `canLaunchUrl` 预检**（2026-10-02 优化）。
 ///
-/// 原因：Android 11+ 的「包可见性」限制下，没在 `AndroidManifest.xml` 的
-/// `<queries>` 里声明过的 scheme，`canLaunchUrl` 会**误报 false**，
-/// 于是我们会在明明装了 B 站 App 的情况下直接放弃深链、退回浏览器 ——
-/// 症状正是「点一下还是打开了网页」。
+/// 两条理由：
 ///
-/// 所以自定义 scheme 一律直接尝试唤起，用异常兜底；
-/// http(s) 才走预检（浏览器必然可解析，预检是安全的）。
-Future<bool> _launch(String url, {bool customScheme = false}) async {
+/// 1. **性能**：预检是一次额外的「插件 ↔ 原生」IPC 往返，发生在平台线程上，
+///    点击后到真正跳转之间那段卡顿，它要占掉一部分。
+/// 2. **准确性**（阶段 I 踩过的坑）：Android 11+ 的包可见性限制下，没在
+///    `AndroidManifest.xml` 的 `<queries>` 里声明过的 scheme，`canLaunchUrl`
+///    会**误报 false** —— 于是会在明明装了 B 站 App 的情况下放弃深链、
+///    退回浏览器，症状就是「点一下还是打开了网页」。
+///
+/// 所以一律直接尝试 `launchUrl`，用异常兜底。
+Future<bool> _launch(String url) async {
   try {
-    final Uri uri = Uri.parse(url);
-    if (!customScheme && !await canLaunchUrl(uri)) return false;
-    return await launchUrl(uri, mode: LaunchMode.externalApplication);
+    return await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   } on PlatformException {
     // 没有应用能处理这个 scheme（没装 B 站 App、或该机禁止唤起）
     return false;

@@ -233,9 +233,8 @@ class _TodayPageState extends State<TodayPage> {
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             accent: c.live,
-            onTap: () => _open(s.roomId.isEmpty
-                ? ''
-                : 'https://live.bilibili.com/${s.roomId}'),
+            // 点卡片不再是「直接进直播间」，而是弹层让用户选（见 _showLiveActions）。
+            onTap: () => _showLiveActions(s, name, snap.data?.face ?? ''),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -289,30 +288,161 @@ class _TodayPageState extends State<TodayPage> {
                     ],
                   ),
                 ),
-                // 弹幕姬入口（LAPLACE Chat）。
-                //
-                // 用独立的图标按钮而不是「长按卡片」：卡片本身的点击是
-                // 「进直播间」，两个动作要给两处明确的落点，否则用户根本
-                // 不知道还能开弹幕。
-                if (s.roomId.isNotEmpty)
-                  IconButton(
-                    tooltip: '打开弹幕姬',
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(Icons.forum_outlined, size: 20, color: c.brand),
-                    onPressed: () => Navigator.of(context).push(
+                // 纯装饰：提示「点开还有选项」。
+                // 刻意**不绑 onTap** —— 它随整张卡片一起响应，不是第二个落点；
+                // 整张卡只留一个落点，正是这次改版要解决的问题。
+                const SizedBox(width: 6),
+                Icon(Icons.more_horiz, size: 18, color: c.textSecondary),
+              ],
+            ),
+          );
+        },
+      );
+
+  /// 点直播卡 → 底部弹层，由用户明确选「进直播间」还是「打开弹幕姬」。
+  ///
+  /// 为什么改成弹层（而不是"卡片直接进直播间 + 角落放个弹幕图标"）：
+  /// 那个图标在视觉上**就是卡片的一部分**，用户点它会以为自己点的是
+  /// 「进直播间」，结果打开了第三方弹幕机页面 —— 一张卡两个落点、外观还
+  /// 分不出区别，这是设计问题，不是用户手滑。所以干脆取消隐藏落点：
+  /// 点哪里都弹层，由用户明确选一次。
+  ///
+  /// 取舍：进直播间从 1 步变 2 步，换来的是**不会点错**（已确认接受）。
+  /// 另外卡片里不再有任何图标，弹幕姬只有这一个入口。
+  Future<void> _showLiveActions(LiveStatus s, String name, String face) async {
+    // 没有房间号就没什么可选的：直接说清楚，别弹一个全是禁用按钮的弹层
+    // （自审 P2-3 的修法 —— 弹层是用来"选"的，不是用来"告知打不开"的）。
+    if (s.roomId.isEmpty) {
+      _toast('这条直播记录缺少房间号，暂时无法打开。');
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) {
+        final AppColors c = sheet.c;
+        final NavigatorState nav = Navigator.of(sheet);
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              // 这里用 stretch 是安全的：弹层的**宽度**是有界的，
+              // 与「ListView 里高度无界 + stretch」那个坑（坑清单第 22 条）不同。
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: c.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: <Widget>[
+                    AvatarBubble(url: face, size: 40, live: true),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Flexible(
+                                child: Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: c.textPrimary,
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const TagChip(
+                                label: '直播中',
+                                icon: Icons.circle,
+                                dense: true,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            s.title.isEmpty ? '直播中' : s.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: c.textSecondary,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                          // 弹幕姬收进弹层后就"看不见"了（自审 P1-2），
+                          // 这里补一句说明，让第一次用的人知道还能看弹幕。
+                          const SizedBox(height: 6),
+                          Text(
+                            '进直播间，或看这个直播间的弹幕',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: c.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: () async {
+                    nav.pop();
+                    // 让弹层关闭先渲染一帧，再发起跨应用跳转。
+                    //
+                    // 原因：跳转最终是在平台线程上做 `startActivity`，如果和
+                    // 弹层的关闭动画挤在同一帧，会明显掉帧（用户感受到的就是
+                    // "点了卡一下"）。让它先出一帧，观感会顺很多。
+                    await WidgetsBinding.instance.endOfFrame;
+                    _open('https://live.bilibili.com/${s.roomId}');
+                  },
+                  icon: const Icon(Icons.live_tv_rounded, size: 18),
+                  label: const Text('进入直播间'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    nav.pop();
+                    nav.push(
                       MaterialPageRoute<void>(
                         builder: (_) => DanmakuPage(
                           roomId: s.roomId,
                           upName: name,
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
+                  icon: const Icon(Icons.forum_outlined, size: 18),
+                  label: const Text('打开弹幕姬'),
+                ),
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed: nav.pop,
+                  child: Text('取消', style: TextStyle(color: c.textSecondary)),
+                ),
               ],
             ),
-          );
-        },
-      );
+          ),
+        );
+      },
+    );
+  }
 
   /// 动态卡片：作者与时间一行，标题独立一行，类型标签在底部。
   ///
@@ -443,12 +573,24 @@ class _TodayPageState extends State<TodayPage> {
   /// 以前直接 `launchUrl(https://…)`，系统会用浏览器打开（或弹选择框），
   /// **不会进 B 站 App** —— 用户明确要求「直接跳转 App」，所以改成先试
   /// `bilibili://` 深链（见 external_link.dart）。
-  Future<void> _open(String url) async {
-    if (url.isEmpty) return;
-    if (await openBilibiliContent(url)) return;
+  /// 外部跳转进行中的锁。
+  ///
+  /// 为什么需要：`launchUrl` 最终会在平台线程上做 `startActivity`，
+  /// 目标 App 冷启动时要更久。这段空档里用户很容易以为没点上而连点，
+  /// 于是连发多次跳转 —— 表现就是"越点越卡"。加一道锁，重复点击直接忽略。
+  bool _opening = false;
 
-    // 两条路都失败（没装 B 站 App 且没有浏览器）：至少别让点击「毫无反应」
-    await copyLink(url);
-    _toast('没能打开：链接已复制到剪贴板');
+  Future<void> _open(String url) async {
+    if (url.isEmpty || _opening) return;
+    _opening = true;
+    try {
+      if (await openBilibiliContent(url)) return;
+
+      // 两条路都失败（没装 B 站 App 且没有浏览器）：至少别让点击「毫无反应」
+      await copyLink(url);
+      _toast('没能打开：链接已复制到剪贴板');
+    } finally {
+      _opening = false;
+    }
   }
 }
