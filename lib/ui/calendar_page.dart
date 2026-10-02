@@ -294,7 +294,7 @@ class _CalendarPageState extends State<CalendarPage> {
         ),
         if (_dayItems.isEmpty)
           Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Center(
               child: Text(
                 '这一天没有记录',

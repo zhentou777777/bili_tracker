@@ -18,6 +18,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bili_tracker/ui/app.dart';
 import 'package:bili_tracker/ui/theme.dart';
+// 共用组件在 widgets.dart 里，不在 app.dart —— 漏了这个 import 会让本文件
+// 连编译都过不去，`flutter test` 报 Some tests failed（本文件 13 个用例全部不执行）。
+import 'package:bili_tracker/ui/widgets.dart';
 
 void main() {
   test('深色主题：亮度、主色、底色、卡片色都对', () {
@@ -139,11 +142,16 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildTrackerTheme(AppColors.light),
-        home: const Scaffold(
-          body: SizedBox.shrink(),
+        // 注意两处 const 的写法：
+        // - `NavigationBar` **没有** const 构造函数（Flutter SDK 里有明确说明：
+        //   "This class cannot be const constructed"），所以外层不能加 const；
+        // - 但 `NavigationDestination` **有**，所以 destinations 那个列表可以整体
+        //   写成 const，元素随之隐式 const（否则 prefer_const_constructors 会报警）。
+        home: Scaffold(
+          body: const SizedBox.shrink(),
           bottomNavigationBar: NavigationBar(
             selectedIndex: 0,
-            destinations: <NavigationDestination>[
+            destinations: const <NavigationDestination>[
               NavigationDestination(icon: Icon(Icons.bolt), label: '今日'),
               NavigationDestination(icon: Icon(Icons.settings), label: '设置'),
             ],

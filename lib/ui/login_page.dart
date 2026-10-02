@@ -504,7 +504,7 @@ class _LoginPageState extends State<LoginPage> {
             children: <Widget>[
               Icon(Icons.phone_iphone_rounded,
                   size: 16, color: context.c.accent),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   '就在这台手机上：点上面的按钮，会直接跳到 B 站 App 的授权页，'
@@ -707,7 +707,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
           SafeArea(
             top: false,
             child: Padding(
-              padding: EdgeInsets.all(12),
+              padding: const EdgeInsets.all(12),
               child: Text(
                 '网页登录是备用方案，可能因页面白屏而失败；\n正常情况请用扫码登录。',
                 textAlign: TextAlign.center,

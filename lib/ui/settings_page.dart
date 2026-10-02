@@ -175,10 +175,10 @@ class _SettingsPageState extends State<SettingsPage> {
             secondary: const Icon(Icons.auto_awesome, size: 20),
             title: const Text('自动追更最近观看直播的已关注主播',
                 style: TextStyle(fontSize: 13)),
-            subtitle: Text(
+            subtitle: const Text(
               '取「最近观看的直播」与「你的关注列表」的交集，自动加进追更名单。'
               '刷新时最多 6 小时跑一次，不额外增加请求负担。',
-              style: const TextStyle(fontSize: 11),
+              style: TextStyle(fontSize: 11),
             ),
             value: _autoTrack,
             onChanged: (bool v) async {
@@ -278,7 +278,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           _section('说明'),
           Padding(
-            padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Text(
               '本工具使用你本人的 Cookie 直连平台接口，相当于你自己打开网页查看关注内容。'
               'Cookie 只保存在本机安全存储中，不会上传到任何服务器。\n\n'
