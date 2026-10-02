@@ -10,12 +10,14 @@ Flutter 实现，**客户端 Cookie 直连**架构：所有平台请求都在 Ap
 
 | 项目 | 版本 | 说明 |
 |---|---|---|
-| Flutter | **≥ 3.10** | 必须，依赖 Dart 3 |
-| Dart | ≥ 3.0 | 随 Flutter 一起 |
-| Android SDK | compileSdk 34 / minSdk 23 | minSdk 23 是 Keystore 强安全存储的下限 |
-| JDK | 17 | Gradle 要求 |
+| Flutter | **≥ 3.32**（本项目实测用 3.32.8） | 必须。`workmanager ^0.9.0` 强制要求 3.32，**低于此版本 `pub get` 会直接失败**（原文档写的「≥ 3.10」经实测不成立） |
+| Dart | ≥ 3.5（随 Flutter 3.32 带来 3.8.1） | 随 Flutter 一起 |
+| Android SDK | compileSdk 35 / minSdk **23** | minSdk 23 是 Keystore 强安全存储与 workmanager 的下限 |
+| JDK | 17 | Gradle 要求（JDK 25 不可用） |
+| NDK | **27.0.12077973** | 8 个插件的共同要求（见 `android/app/build.gradle.kts`） |
 
-> 当前开发沙箱预装的是 Flutter 3.0 / Dart 2.17，**无法编译本项目**，也没有 Android SDK —— 因此交付的是完整可编译源码，APK 需在你本地签名构建。核心逻辑另用 CLI 探针在真实 B 站接口上验证过（见第 5 节）。
+> 接手后的实际状态：项目**已在本机编译出可安装的 APK**，`flutter analyze` 0 告警、测试通过。
+> 排障全过程、17 条提交的逐项说明、坑清单与回退方法，见 **`交接文档.md`（权威版）**。
 
 ## 2. 快速开始
 
@@ -25,12 +27,15 @@ flutter pub get
 flutter run                       # 连真机或模拟器
 ```
 
-构建安装包：
+构建安装包（**推荐直接双击 `REBUILD.bat`**，它会先清缓存再编译）：
 
 ```bash
 flutter build apk --release       # Android
 flutter build ipa                 # iOS（需先配好证书）
 ```
+
+> ⚠️ 注意：Flutter 的增量编译**可能漏判 Dart 源码变更**，出现「只编译几秒就显示 Built …apk」的
+> 假成功（包里还是旧代码）。判断是否真的出新包：**看 APK 文件的修改时间**。
 
 首次运行请先到「设置 → 去登录」，用 WebView 登录 B 站账号，再回「今日」页点右上角刷新。
 
@@ -41,6 +46,10 @@ flutter create --platforms=android .   # 生成 android/local.properties 等缺�
 ```
 
 `android/` 目录已手写好 `build.gradle`、`AndroidManifest.xml`、`MainActivity.kt`、`styles.xml` 和一套占位图标（粉色圆环，建议替换）。`flutter create` 会补上 `local.properties`（含 `flutter.sdk` 路径），这一步不能跳。
+
+> ⚠️ **本项目已补过模板，请不要再跑 `flutter create`**：它会额外生成一套 Kotlin DSL（`.kts`）配置，
+> 与手写 Groovy 配置冲突，并且会把 `minSdk` 从 23 悄悄退回 21（导致清单合并失败）。
+> 相关现场已整理到 `android/_legacy_groovy_bak/`（保留，未删除），细节见 `交接文档.md` 第三节 A5/B5。
 
 ## 3. 目录结构
 
