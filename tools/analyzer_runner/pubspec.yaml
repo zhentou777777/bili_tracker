@@ -1,0 +1,19 @@
+# 独立的小包，**不属于 App 的依赖图**（根 pubspec.yaml 没有引用它）。
+#
+# 存在的理由：本项目所在环境的沙箱禁止 `dart analyze` 建立命名管道
+# （报 CreateFile failed 231），导致「analyze 是否归零」这件事只能靠人
+# 双击 CHECK.bat。这个小包直接调用 analyzer 库，绕开管道，可以在命令行里跑。
+#
+# 用法：
+#   cd tools/analyzer_runner
+#   dart pub get
+#   dart run bin/analyze.dart ../..
+#
+# analyzer 版本刻意与当前 Flutter SDK 内置的一致（7.3.0），
+# 这样结果才和 `flutter analyze` 对齐；升级 Flutter 后可相应调整。
+name: analyzer_runner
+publish_to: none
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+dependencies:
+  analyzer: 7.3.0

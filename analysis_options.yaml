@@ -9,6 +9,16 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # tools/analyzer_runner 是一个独立的小包（有自己的 pubspec 与 .dart_tool），
+    # 用来在本机跑静态分析（本环境的沙箱禁止 `dart analyze` 建命名管道）。
+    # 它**不属于 App 的依赖图**，必须在这里排除：
+    # 否则在全新 clone（那个目录还没有 .dart_tool）上，分析器会用根包的
+    # package_config 去解析它，`package:analyzer/...` 全部找不到，
+    # 反而让 `flutter analyze` 从 0 变成一堆错误。
+    - tools/analyzer_runner/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
