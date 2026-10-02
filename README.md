@@ -155,6 +155,47 @@ BILI_COOKIE='SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx' dart tools/probe.dart
 第 10 项虽然打真实网络，但**不产生任何副作用**（不登录、不写数据），所以可以随时跑；它盯住两件事：
 授权页地址没被 B 站改掉（改了「同设备跳转 App」就会失效）、以及**未扫码时绝不能误判成登录成功**。
 
+### 静态分析自检（analyze 归零）
+
+本项目要求 `flutter analyze` 保持 **0 个问题**（含 info）。但 `CHECK.bat` 要双击、还要等编译，
+迭代时太慢；而某些受限环境里 `dart analyze` 会因为要建命名管道而直接失败
+（`CreateFile failed 231`）。因此仓库内附带一个独立的小工具：
+
+```bash
+cd tools/analyzer_runner
+dart pub get
+dart run bin/analyze.dart "D:/fan club/bili_tracker"
+# 已分析 29 个文件
+# error 0  warning 0  info 0  →  合计 0
+```
+
+退出码：0 = 干净，1 = 有问题，可直接串进脚本。
+
+它直接调用 analyzer 库（版本锁定 7.3.0，与当前 Flutter SDK 内置的一致，保证结果和
+`flutter analyze` 对齐），并读取项目自己的 `analysis_options.yaml`，所以 lint 规则完全相同。
+
+> ⚠️ `tools/analyzer_runner` 是**独立小包**，不在 App 的依赖图里；根
+> `analysis_options.yaml` 里已用 `analyzer.exclude` 排除它。
+> **不要把这个 exclude 删掉** —— 全新 clone 上那个目录还没有 `.dart_tool`，
+> 分析器会用根包的 `package_config` 去解析它，`package:analyzer/...` 全部找不到，
+> 反而让 `flutter analyze` 从 0 变成一堆错误。
+
+### 出包后怎么确认「包里真的是新代码」
+
+只看 APK 的修改时间不够（本项目遇到过增量编译漏判源码变更、只花 2.9 秒重打包的假成功；
+反过来时间新也只证明文件被写过）。可靠做法是拆包搜字符串：
+
+```python
+import zipfile
+data = zipfile.ZipFile('build/app/outputs/flutter-apk/app-release.apk') \
+    .read('lib/arm64-v8a/libapp.so')
+# 本项目 AOT 里的中文是 UTF-16LE
+assert '在 B 站 App 中确认'.encode('utf-16-le') in data
+```
+
+同时要搜一个**新旧版本都有**的对照串（例如「今日速览」）来确认编码没找错，
+并搜一个**只在旧版存在**的文案来确认它已消失。
+
 ## 6. 规则文件
 
 `assets/rules/platforms.json` 定义了所有端点地址、参数模板、解析路径。B 站改接口时改这个文件即可，**不用发版**：
