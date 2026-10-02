@@ -17,10 +17,11 @@ Flutter 实现，**客户端 Cookie 直连**架构：所有平台请求都在 Ap
 | NDK | **27.0.12077973** | 8 个插件的共同要求（见 `android/app/build.gradle.kts`） |
 
 > 接手后的实际状态：项目**已在本机编译出可安装的 APK**，`flutter analyze` **0 问题**（已用
-> `tools/analyzer_runner` 复核：30 个文件、error/warning/info 全 0）。
+> `tools/analyzer_runner` 复核：32 个文件、error/warning/info 全 0）。
 > **单元测试**共 43 个用例；最近一次自检（15:58）有 2 个失败，**已修复但尚未复跑确认**
 > （详见 `审计报告.md` 与 `交接文档.md` 阶段 H）。
-> 排障全过程、提交的逐项说明、坑清单与回退方法，见 **`交接文档.md`（权威版）**。
+> **想快速了解现状：读 `交接总结.md`**（入口文档）。
+> 排障全过程、每个问题的根因、24 条坑清单与回退方法，见 **`交接文档.md`（详细权威版）**。
 
 ## 2. 快速开始
 
@@ -174,7 +175,7 @@ BILI_COOKIE='SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx' dart tools/probe.dart
 cd tools/analyzer_runner
 dart pub get
 dart run bin/analyze.dart "D:/fan club/bili_tracker"
-# 已分析 29 个文件
+# 已分析 32 个文件
 # error 0  warning 0  info 0  →  合计 0
 ```
 
