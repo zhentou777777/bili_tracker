@@ -1,7 +1,7 @@
 name: bili_tracker
-description: 多 UP 主综合追更工具 —— 客户端 Cookie 直连，服务端零代理
+description: 追更台 —— 把关注的 B 站 UP 主动态与开播聚到一处。仅 Android。
 publish_to: "none"
-version: 0.1.0+1
+version: 0.2.0+1
 
 # 版本下限必须写实。原先写的是 sdk >=3.0.0 / flutter >=3.10.0，
 # 但代码实际用了 Color.withValues（Flutter 3.27+）、CardThemeData / DialogThemeData
