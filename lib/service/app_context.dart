@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/dio_sender.dart';
+import '../core/http.dart';
 import '../core/rules.dart';
 import '../core/wbi.dart';
 import '../data/db.dart';
@@ -70,14 +71,14 @@ class AppContext {
     final EndpointRule? ep = rule.endpoint('nav');
     if (ep == null) return null;
     try {
-      final dynamic resp = await sender.get(
+      final HttpResp resp = await sender.get(
         ep.url,
         headers: <String, String>{
           'User-Agent': kBilibiliUserAgent,
           'Referer': ep.referer,
         },
       );
-      final Object? decoded = jsonDecode(resp.body as String);
+      final Object? decoded = jsonDecode(resp.body);
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {
       // nav 失败只影响需要签名的接口，不阻断整体

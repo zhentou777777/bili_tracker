@@ -439,7 +439,9 @@ class SyncService {
       return report;
     }
 
-    final List<String> uids = await _ctx.db.upsWithLiveEnabled();
+    // 只取 B 站的：下面调的是 B 站专用直播接口，传错平台的 uid 会变成脏请求
+    final List<String> uids =
+        await _ctx.db.upsWithLiveEnabled(BilibiliAdapter.platformId);
     if (uids.isEmpty) return report;
 
     try {

@@ -78,9 +78,6 @@ class AppColors extends ThemeExtension<AppColors> {
   Color tint(Color color, [double alpha = 0.12]) =>
       color.withValues(alpha: alpha);
 
-  /// 比 surface 再抬一级的容器底色（深色下更亮、浅色下更暗一点）。
-  Color get raised => isDark ? surfaceAlt : surface;
-
   @override
   AppColors copyWith({
     bool? isDark,

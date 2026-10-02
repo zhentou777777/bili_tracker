@@ -3,6 +3,16 @@
 /// 之所以抽象出来：App 里跑 Dio，CLI 探针里跑 dart:io，两边共用同一套适配器逻辑。
 library http_core;
 
+/// 模拟浏览器的 User-Agent。
+///
+/// 定义在 `core` 而不是 `platform`：`DioHttpSender`（core 层）也要用，
+/// 而 core 不应该反向依赖 platform。原先这段字符串在
+/// `platform/bilibili.dart` 与 `core/dio_sender.dart` 里各写了一份，
+/// 改一处漏一处的风险很实在 —— 少了它会被 B 站直接判成爬虫。
+const String kBrowserUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 /// 请求结果。
 class HttpResp {
   const HttpResp({

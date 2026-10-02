@@ -4,14 +4,16 @@ library bilibili;
 import 'dart:convert';
 
 import '../core/http.dart';
+import '../core/text.dart';
 import '../core/rules.dart';
 import '../core/wbi.dart';
 import 'models.dart';
 
 /// 模拟浏览器的请求头，缺失会被判定为爬虫。
-const String kBilibiliUserAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-    '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+///
+/// 值定义在 `core/http.dart`（core 层的 `DioHttpSender` 也要用，
+/// 不能两处各写一份）。这里保留原名字，避免改动一堆调用点。
+const String kBilibiliUserAgent = kBrowserUserAgent;
 
 class BilibiliAdapter {
   BilibiliAdapter({
@@ -1028,10 +1030,10 @@ String _fixJump(String url) {
 }
 
 /// 摘要统一截断，避免超长图文把本地库撑大、把列表撑爆。
-String _clip(String text, {int max = 600}) {
-  if (text.length <= max) return text;
-  return '${text.substring(0, max)}…';
-}
+///
+/// 实现委托给 `core/text.dart`：通知那边也要截断（阈值不同），
+/// 两边各写一份迟早会不一致。
+String _clip(String text, {int max = 600}) => clipText(text, max: max);
 
 Map<String, dynamic> _asMap(Object? raw) {
   if (raw is Map) return Map<String, dynamic>.from(raw);

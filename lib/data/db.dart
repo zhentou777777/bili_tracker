@@ -113,8 +113,28 @@ class AppDatabase {
     await batch.commit(noResult: true);
   }
 
+  /// 表结构迁移。
+  ///
+  /// ⚠️ **改 schema 的规矩（务必遵守）**：
+  /// 1. 改完表结构，必须把上面的 `_version` 加 1，否则老用户升级后不会触发这里，
+  ///    会带着旧表结构继续用 —— 表现为「查询报 no such column」或更糟的**静默丢数据**；
+  /// 2. 然后在这里按 `oldVersion` 分段写迁移，**不要写成 if (newVersion == N)**：
+  ///    用户可能从 v1 直接跳到 v3，分段写法才能把它们依次走完；
+  /// 3. 迁移里不要 DROP 用户数据字段。宁可先 ADD COLUMN 留空，也不要删。
+  ///
+  /// 当前 `_version = 1`，是从未发过版的首个版本，所以这里没有历史迁移。
+  /// 但**不能留空当作"以后再说"**：下面这行兜底会在「有人 bump 了版本却忘了写迁移」
+  /// 时立刻炸出来，而不是等到用户数据出问题。
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // 首个版本暂无迁移；后续如需加列，在这里按 oldVersion 分段处理
+    if (oldVersion < 1) {
+      // v0（不存在）→ v1 由 onCreate 负责，走不到这里
+      return;
+    }
+    // 走到这里说明：有人把 _version 提到 > 1，但没有为这段版本区间补迁移。
+    throw StateError(
+      '缺少数据库迁移：$oldVersion → $newVersion。'
+      '请在 AppDatabase._onUpgrade 里按 oldVersion 分段补上迁移脚本。',
+    );
   }
 
   // ---------------- UP 主 ----------------
@@ -310,8 +330,17 @@ class AppDatabase {
       args.add(platform);
     }
     if (keyword != null && keyword.trim().isNotEmpty) {
-      final String like = '%${keyword.trim()}%';
-      where.add('(title LIKE ? OR summary LIKE ? OR up_name LIKE ?)');
+      // 必须转义 LIKE 的通配符：用户搜「50%」或「a_b」时，% 和 _ 会被 SQL 当成
+      // 通配符，结果不是「搜不到」而是**搜出一堆不相干的内容**（很违反直觉）。
+      // 注意反斜杠要先转义，顺序反了会把刚加的转义符再转一遍。
+      final String escaped = keyword
+          .trim()
+          .replaceAll(r'\', r'\\')
+          .replaceAll('%', r'\%')
+          .replaceAll('_', r'\_');
+      final String like = '%$escaped%';
+      where.add(r"(title LIKE ? ESCAPE '\' OR summary LIKE ? ESCAPE '\'"
+          r" OR up_name LIKE ? ESCAPE '\')");
       args.addAll(<Object?>[like, like, like]);
     }
     if (onlyNotNotified) {
@@ -471,12 +500,20 @@ class AppDatabase {
     );
   }
 
-  Future<List<String>> upsWithLiveEnabled() async {
+  /// 开启了开播推送的 UP 主 uid。
+  ///
+  /// **`platform` 是必填的**（虽然加默认值更"方便"）：调用方 `checkLive()` 拿到这些
+  /// uid 后会直接发往 B 站专用的直播接口。若不过滤平台，一旦将来启用微博，
+  /// 微博的 uid 就会被当成 B 站 mid 发到 `api.live.bilibili.com`，产生一批脏请求、
+  /// 还可能误判成"某个不存在的房间开播了"。
+  /// 做成必填就是为了让「忘了传平台」这件事在编译期就暴露。
+  Future<List<String>> upsWithLiveEnabled(String platform) async {
     final Database db = await database;
     final List<Map<String, Object?>> rows = await db.query(
       'ups',
       columns: <String>['uid'],
-      where: 'push_live = 1',
+      where: 'push_live = 1 AND platform = ?',
+      whereArgs: <Object?>[platform],
     );
     return <String>[
       for (final Map<String, Object?> r in rows) r['uid'].toString()

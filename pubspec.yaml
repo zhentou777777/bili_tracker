@@ -3,9 +3,14 @@ description: 多 UP 主综合追更工具 —— 客户端 Cookie 直连，服�
 publish_to: "none"
 version: 0.1.0+1
 
+# 版本下限必须写实。原先写的是 sdk >=3.0.0 / flutter >=3.10.0，
+# 但代码实际用了 Color.withValues（Flutter 3.27+）、CardThemeData / DialogThemeData
+# （更晚才有），且 workmanager 0.9.x 本身就强制 Flutter >= 3.32。
+# 下限写太低不会更兼容，只会让 Flutter 3.10~3.31 通过 pub get 的版本检查、
+# 然后在编译期报一堆看不懂的缺符号错误。当前实况：Flutter 3.32.8 / Dart 3.8.1。
 environment:
-  sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=3.10.0"
+  sdk: ">=3.8.0 <4.0.0"
+  flutter: ">=3.32.0"
 
 dependencies:
   flutter:

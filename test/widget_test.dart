@@ -133,6 +133,11 @@ void main() {
     expect(seen.isDark, isFalse);
 
     await tester.pumpWidget(probe(AppColors.dark));
+    // 这一步不能省：MaterialApp 换主题时内部用 AnimatedTheme 做约 200ms 的
+    // 颜色插值，只 pumpWidget 的话动画停在 t=0，Theme.of() 返回的仍是**旧主题**，
+    // 断言必然失败（这正是审计报告 P1-2 指出的问题）。
+    // 推进一帧动画，让插值走完。
+    await tester.pump(const Duration(milliseconds: 300));
     expect(seen.bg, AppColors.dark.bg);
     expect(seen.isDark, isTrue);
   });

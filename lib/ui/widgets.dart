@@ -51,20 +51,30 @@ class AppCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
             child: accent == null
                 ? body
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      Container(
-                        width: 3.5,
-                        decoration: BoxDecoration(
-                          color: accent,
-                          borderRadius: const BorderRadius.horizontal(
-                            left: Radius.circular(18),
-                          ),
-                        ),
+                // 左侧强调竖条：用**左边框**画，不要用 Row + stretch。
+                //
+                // 曾经的写法是 Row(crossAxisAlignment: stretch) 里放一个 3.5 宽的
+                // Container。那是个真 bug：stretch 要求交叉轴（这里是高度）**有界**，
+                // 而卡片经常被放进 ListView / Column（主轴无界，高度约束是
+                // 0<=h<=Infinity）→ stretch 想按 height: Infinity 布局子项 →
+                // BoxConstraints 归一化断言失败：
+                //   "BoxConstraints forces an infinite height"
+                // 触发条件很隐蔽：只有「正在直播」卡片才带 accent，也就是
+                // **只要有 UP 主开播，「今日」页渲染那张卡时就会崩**，平时看不到。
+                //
+                // 用左边框既不依赖父级约束，也省掉一次 intrinsic 测量。
+                // DecoratedBox 不会给子项加内边距（不同于 Container），
+                // 所以卡片内容的内边距仍严格等于传入的 padding。
+                : DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(color: accent!, width: 3.5),
                       ),
-                      Expanded(child: body),
-                    ],
+                      borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(18),
+                      ),
+                    ),
+                    child: body,
                   ),
           ),
         ),
@@ -302,20 +312,18 @@ class EmptyState extends StatelessWidget {
   }
 }
 
-/// 圆形头像（带占位与直播光圈）。
+/// 圆形头像（占位图标 + 直播光圈）。
 class AvatarBubble extends StatelessWidget {
   const AvatarBubble({
     super.key,
     required this.url,
     this.size = 42,
     this.live = false,
-    this.badge,
   });
 
   final String url;
   final double size;
   final bool live;
-  final Widget? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -344,20 +352,6 @@ class AvatarBubble extends StatelessWidget {
               ),
             ),
     );
-
-    if (badge != null) {
-      return SizedBox(
-        width: size,
-        height: size,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: <Widget>[
-            avatar,
-            Positioned(right: -2, bottom: -2, child: badge!),
-          ],
-        ),
-      );
-    }
 
     if (!live) return avatar;
 

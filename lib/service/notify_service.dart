@@ -7,9 +7,9 @@
 ///   - 静默档 → 只进日历，不打扰
 library notify_service;
 
-import 'dart:math';
-
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import '../core/text.dart';
 
 import '../platform/models.dart';
 
@@ -70,13 +70,35 @@ class NotifyService {
     return _initialized;
   }
 
-  /// Android 13+ 需要显式申请通知权限。
+  /// 申请通知权限。
+  ///
+  /// 两端机制不同，必须分别处理：
+  /// - **Android 13+**：需要显式调用 `requestNotificationsPermission()`，否则通知静默不显示；
+  /// - **iOS / macOS**：权限在 `initialize()` 时由系统弹窗申请，之后可用
+  ///   `checkPermissions()` 查询。
+  ///
+  /// ⚠️ **iOS 分支从未在真机验证过**（第一阶段只在 Android 上规划验证，见交接文档
+  /// 「已知限制」）。这里把 iOS 的查询补上，但**不声称它可用**：返回值只代表
+  /// 「系统当前是否已授权」，不保证通知能正常送达。真要上 iOS，需要一台真机过一遍。
   Future<bool> requestPermission() async {
     final AndroidFlutterLocalNotificationsPlugin? androidImpl =
         _plugin.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
-    final bool? granted = await androidImpl?.requestNotificationsPermission();
-    return granted ?? true;
+    if (androidImpl != null) {
+      final bool? granted = await androidImpl.requestNotificationsPermission();
+      return granted ?? true;
+    }
+
+    // 非 Android（当前只有 iOS 有实现）：权限在 initialize() 时由系统弹窗申请，
+    // 这里只查询当前授权状态，**不重复申请**。
+    final IOSFlutterLocalNotificationsPlugin? iosImpl =
+        _plugin.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+    if (iosImpl != null) {
+      final NotificationsEnabledOptions? opts = await iosImpl.checkPermissions();
+      return opts?.isEnabled ?? true;
+    }
+    return true;
   }
 
   Future<void> notifyLive({
@@ -167,8 +189,17 @@ class NotifyService {
     }
   }
 
-  static String _clip(String s) => s.length > 60 ? '${s.substring(0, 60)}…' : s;
+  static String _clip(String s) => clipText(s, max: 60);
 
-  static final Random _rnd = Random();
-  static int _nextId() => 100000 + _rnd.nextInt(899999);
+  /// 通知 id 用自增计数器，不用随机数。
+  ///
+  /// 原来是 `100000 + Random().nextInt(899999)`：虽然撞上的概率不高，
+  /// 但一旦两条通知拿到同一个 id，后一条会**覆盖**前一条，症状是「少了一条提醒」
+  /// 且完全无迹可寻。自增不会有这个问题，环形回绕保持在 6 位范围内。
+  static int _seqId = 100000;
+
+  static int _nextId() {
+    _seqId = _seqId >= 999999 ? 100000 : _seqId + 1;
+    return _seqId;
+  }
 }
