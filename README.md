@@ -91,11 +91,17 @@ lib/
 
 assets/rules/platforms.json   平台接口规则表（含 login 段）
 tools/probe.dart              CLI 探针（真实接口验证，40 项）
+tools/analyzer_runner/        独立小包：绕开沙箱限制跑静态分析（用法见第 5 节）
 test/widget_test.dart         主题与共用组件测试（13 项）
 test/dynamic_parser_test.dart 动态/观看历史解析单元测试（离线样本，12 项）
 test/login_parser_test.dart   扫码登录状态码映射 + Set-Cookie 解析（离线样本，18 项）
 server/worker.js              Cloudflare Worker 推送中继（第二阶段）
+docs/archive/                 已归档的历史文档（仅作过程证据，见其 README.md）
 ```
+
+**根目录的文档**：`交接文档.md`（权威版，先读这个）、各阶段说明
+（`动态修复与自动追更策略说明.md` / `登录方式改造说明.md` / `界面改版说明.md`）、
+`审计报告.md`、`编译说明.txt`（面向非技术用户）。
 
 ## 4. 与需求文档的重要差异
 
