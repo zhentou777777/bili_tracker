@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../platform/models.dart';
 import '../service/sync_service.dart';
 import 'app.dart';
+import 'external_link.dart';
 import 'login_page.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -418,11 +418,17 @@ class _TodayPageState extends State<TodayPage> {
     return '${t.year}/${t.month}/${t.day}';
   }
 
+  /// 打开一条内容：优先唤起 B 站 App，不行再走浏览器。
+  ///
+  /// 以前直接 `launchUrl(https://…)`，系统会用浏览器打开（或弹选择框），
+  /// **不会进 B 站 App** —— 用户明确要求「直接跳转 App」，所以改成先试
+  /// `bilibili://` 深链（见 external_link.dart）。
   Future<void> _open(String url) async {
     if (url.isEmpty) return;
-    final Uri uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    if (await openBilibiliContent(url)) return;
+
+    // 两条路都失败（没装 B 站 App 且没有浏览器）：至少别让点击「毫无反应」
+    await copyLink(url);
+    _toast('没能打开：链接已复制到剪贴板');
   }
 }

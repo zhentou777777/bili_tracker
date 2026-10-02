@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../platform/models.dart';
+import 'external_link.dart';
 import 'theme.dart';
+import 'widgets.dart';
 
 /// 动态日历：按日聚合，可切月历 / 周历。
 class CalendarPage extends StatefulWidget {
@@ -304,8 +306,20 @@ class _CalendarPageState extends State<CalendarPage> {
             ),
           )
         else
-          for (final FeedItem it in _dayItems) _CalendarFeedRow(item: it),
+          for (final FeedItem it in _dayItems)
+            _CalendarFeedRow(item: it, onTap: () => _open(it.url)),
       ],
+    );
+  }
+
+  /// 打开一条内容：优先唤起 B 站 App，不行再走浏览器。
+  Future<void> _open(String url) async {
+    if (url.isEmpty) return;
+    if (await openBilibiliContent(url)) return;
+    await copyLink(url);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('没能打开：链接已复制到剪贴板')),
     );
   }
 
@@ -330,33 +344,83 @@ class _CalendarPageState extends State<CalendarPage> {
   static String _fmt(DateTime d) => '${d.month}/${d.day}';
 }
 
+/// 单条记录。
+///
+/// 以前是个纯 `ListTile`：**没有 onTap**，所以点上去毫无反应 —— 用户反馈的
+/// 「日历里的节目点了不可以跳转」就是这里。
+/// 现在换成 `AppCard`（自带水波纹，可点的感觉是看得见的）+ 点击唤起 B 站 App。
 class _CalendarFeedRow extends StatelessWidget {
-  const _CalendarFeedRow({required this.item});
+  const _CalendarFeedRow({required this.item, required this.onTap});
 
   final FeedItem item;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      dense: true,
-      leading: CircleAvatar(
-        radius: 16,
-        backgroundColor: context.c.surfaceAlt,
-        backgroundImage: item.upFace.isEmpty ? null : NetworkImage(item.upFace),
-        child: item.upFace.isEmpty
-            ? Icon(Icons.person,
-                size: 14, color: context.c.textSecondary)
-            : null,
-      ),
-      title: Text(
-        item.title.isEmpty ? item.summary : item.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 13),
-      ),
-      subtitle: Text(
-        '${item.upName} · ${feedKindLabel(item.kind)} · ${_hhmm(item.publishAt)}',
-        style: TextStyle(fontSize: 11, color: context.c.textSecondary),
+    final AppColors c = context.c;
+
+    return AppCard(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          AvatarBubble(url: item.upFace, size: 38),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Flexible(
+                      child: Text(
+                        item.upName.isEmpty ? item.upUid : item.upName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: c.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('·',
+                        style: TextStyle(color: c.textSecondary, fontSize: 12)),
+                    const SizedBox(width: 6),
+                    Text(
+                      _hhmm(item.publishAt),
+                      style: TextStyle(color: c.textSecondary, fontSize: 11),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  item.title.isEmpty ? item.summary : item.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: c.textPrimary,
+                    fontSize: 13.5,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    TagChip(label: feedKindLabel(item.kind)),
+                    const Spacer(),
+                    Icon(Icons.open_in_new_rounded,
+                        size: 13, color: c.textSecondary),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

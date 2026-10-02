@@ -276,4 +276,97 @@ void main() {
       );
     });
   });
+
+  // ---------------------------------------------------------------------
+  // B 站链接 → App 深链（bilibiliDeepLink）
+  //
+  // 单独钉住的原因：转错了不会崩，只会「点了没反应」或「又打开浏览器」——
+  // 正是用户反馈的问题。所以每一类都要有明确期望，包括「宁可不转」的负例。
+  // 深链格式来源：多个独立来源交叉确认（B 站无公开文档）：
+  //   bilibili://video/{BV|av}、bilibili://live/{房间号}、bilibili://space/{UID}
+  // ---------------------------------------------------------------------
+  group('B 站链接转 App 深链', () {
+    test('视频：BV 号', () {
+      expect(
+        bilibiliDeepLink('https://www.bilibili.com/video/BV1ujNV6qEXg'),
+        'bilibili://video/BV1ujNV6qEXg',
+      );
+    });
+
+    test('视频：带分 P 参数不影响转换', () {
+      expect(
+        bilibiliDeepLink('https://www.bilibili.com/video/BV1ujNV6qEXg?p=2&t=30'),
+        'bilibili://video/BV1ujNV6qEXg',
+      );
+    });
+
+    test('视频：av 号', () {
+      expect(
+        bilibiliDeepLink('https://www.bilibili.com/video/av170001'),
+        'bilibili://video/av170001',
+      );
+    });
+
+    test('直播间', () {
+      expect(
+        bilibiliDeepLink('https://live.bilibili.com/22637261'),
+        'bilibili://live/22637261',
+      );
+    });
+
+    test('用户空间：带子路径也能转', () {
+      expect(
+        bilibiliDeepLink('https://space.bilibili.com/672328094/fans/follow'),
+        'bilibili://space/672328094',
+      );
+    });
+
+    test('m 子域与裸域同样识别', () {
+      expect(
+        bilibiliDeepLink('https://m.bilibili.com/video/BV1ujNV6qEXg'),
+        'bilibili://video/BV1ujNV6qEXg',
+      );
+      expect(
+        bilibiliDeepLink('https://bilibili.com/video/BV1ujNV6qEXg'),
+        'bilibili://video/BV1ujNV6qEXg',
+      );
+    });
+
+    test('未确认可用的类型一律返回 null（宁可走浏览器，也不要点了没反应）', () {
+      // 动态（opus）：没有确认过 bilibili://opus/ 可用
+      expect(
+        bilibiliDeepLink('https://www.bilibili.com/opus/1253052791646060563'),
+        isNull,
+      );
+      // 专栏（read）
+      expect(bilibiliDeepLink('https://www.bilibili.com/read/cv88888'), isNull);
+      // 活动页
+      expect(
+        bilibiliDeepLink('https://www.bilibili.com/blackboard/activity-x.html'),
+        isNull,
+      );
+    });
+
+    test('畸形输入不抛异常，返回 null', () {
+      expect(bilibiliDeepLink(''), isNull);
+      expect(bilibiliDeepLink('not a url'), isNull);
+      expect(bilibiliDeepLink('https://www.bilibili.com/'), isNull);
+      expect(bilibiliDeepLink('https://live.bilibili.com/'), isNull);
+      // 房间号必须是纯数字
+      expect(bilibiliDeepLink('https://live.bilibili.com/abc'), isNull);
+      // video 段后面不是 ID
+      expect(bilibiliDeepLink('https://www.bilibili.com/video/'), isNull);
+    });
+
+    test('不误伤形近域名（不能只看 endsWith）', () {
+      expect(
+        bilibiliDeepLink('https://evilbilibili.com/video/BV1ujNV6qEXg'),
+        isNull,
+      );
+    });
+
+    test('b23.tv 短链不猜，返回 null（需要先解析跳转）', () {
+      expect(bilibiliDeepLink('https://b23.tv/abcdefg'), isNull);
+    });
+  });
 }

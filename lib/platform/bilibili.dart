@@ -1029,6 +1029,62 @@ String _fixJump(String url) {
   return url;
 }
 
+/// 把 B 站网页链接转成 App 深链（`bilibili://…`）；转不了返回 null。
+///
+/// 为什么需要它：只给系统一个 `https://www.bilibili.com/video/BV…`，
+/// 系统通常会用浏览器打开（或弹「用哪个应用打开」），**不会直接进 B 站 App**。
+/// 换成 `bilibili://video/BV…` 才能唤起客户端。
+///
+/// **只转「已确认可用」的三类**（`video` / `live` / `space`）：
+/// B 站没有公开文档，这些 scheme 是从多个独立来源交叉确认的。
+/// 其余类型（opus 动态、read 专栏、blackboard 活动页等）**一律返回 null**，
+/// 让调用方退回 https —— 猜错的后果是「点了没反应」，比走浏览器更糟。
+///
+/// 纯函数、不依赖网络，因此可以直接单测（见 test/dynamic_parser_test.dart）。
+String? bilibiliDeepLink(String webUrl) {
+  if (webUrl.isEmpty) return null;
+  final Uri? uri = Uri.tryParse(webUrl);
+  if (uri == null || uri.host.isEmpty) return null;
+
+  final String host = uri.host.toLowerCase();
+  final List<String> seg =
+      uri.pathSegments.where((String s) => s.isNotEmpty).toList();
+  if (seg.isEmpty) return null;
+
+  // 视频：www.bilibili.com/video/BV1xx411c7mD，或 /video/av170001
+  if (_isBiliHost(host) && seg.first == 'video' && seg.length >= 2) {
+    final String id = seg[1];
+    final bool looksLikeBv = id.startsWith('BV') && id.length >= 10;
+    final bool looksLikeAv =
+        id.toLowerCase().startsWith('av') && int.tryParse(id.substring(2)) != null;
+    if (looksLikeBv || looksLikeAv) return 'bilibili://video/$id';
+    return null;
+  }
+
+  // 直播间：live.bilibili.com/22637261（必须是纯数字房间号）
+  if (host == 'live.bilibili.com' && _isDigits(seg.first)) {
+    return 'bilibili://live/${seg.first}';
+  }
+
+  // 用户空间：space.bilibili.com/672328094（后面可能还有 /fans/follow 之类）
+  if (host == 'space.bilibili.com' && _isDigits(seg.first)) {
+    return 'bilibili://space/${seg.first}';
+  }
+
+  return null;
+}
+
+/// 只认 bilibili.com 及其 www / m 子域。
+///
+/// 刻意不用 `endsWith('bilibili.com')`：那会把 `evilbilibili.com`
+/// 这类域名也放进来。
+bool _isBiliHost(String host) =>
+    host == 'bilibili.com' ||
+    host == 'www.bilibili.com' ||
+    host == 'm.bilibili.com';
+
+bool _isDigits(String s) => s.isNotEmpty && int.tryParse(s) != null;
+
 /// 摘要统一截断，避免超长图文把本地库撑大、把列表撑爆。
 ///
 /// 实现委托给 `core/text.dart`：通知那边也要截断（阈值不同），

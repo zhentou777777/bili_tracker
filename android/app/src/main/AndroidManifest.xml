@@ -12,6 +12,19 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 
+    <!-- Android 11+ 的包可见性（package visibility）。
+         从 Android 11 起，应用默认「看不见」其他应用，除非在这里声明要查询谁。
+         我们需要查询/唤起 B 站 App：点动态、直播、考古条目时要走
+         `bilibili://live/…`、`bilibili://video/…` 这类深链直接打开 B 站 App。
+         没有这段声明时，url_launcher 的 canLaunchUrl 会对 bilibili:// 误报 false，
+         症状是「明明装了 B 站 App，点一下还是打开了浏览器」。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="bilibili"/>
+        </intent>
+    </queries>
+
     <application
         android:label="追更台"
         android:name="${applicationName}"

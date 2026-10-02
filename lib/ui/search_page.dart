@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
 import '../platform/models.dart';
+import 'external_link.dart';
 import 'theme.dart';
 
 /// 考古检索：按关键词、UP 主、内容类型、时间范围回溯本地已抓取内容。
@@ -215,13 +215,16 @@ class _SearchPageState extends State<SearchPage> {
                             ),
                             onTap: () async {
                               if (it.url.isEmpty) return;
-                              final Uri uri = Uri.parse(it.url);
-                              if (await canLaunchUrl(uri)) {
-                                await launchUrl(
-                                  uri,
-                                  mode: LaunchMode.externalApplication,
-                                );
-                              }
+                              // 优先唤起 B 站 App（见 external_link.dart）。
+                              // 以前是直接 launchUrl(https://…)，只会打开浏览器。
+                              if (await openBilibiliContent(it.url)) return;
+                              await copyLink(it.url);
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('没能打开：链接已复制到剪贴板'),
+                                ),
+                              );
                             },
                           );
                         },
